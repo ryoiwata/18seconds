@@ -37,6 +37,7 @@ The philosophy of this starter is simple: **prevent entire classes of bugs at th
     git clone https://github.com/superbuilders/superstarter.git
     cd superstarter
     bun install
+    bunx lefthook install   # wires up the pre-commit hook (format + lint + typecheck)
     ```
 
 2.  **Provision AWS infrastructure** (RDS Postgres, IAM OIDC provider, Vercel role):
@@ -134,7 +135,51 @@ logger.info("user created: " + user.id);
 ```
 </details>
 
-### Database Migrations
+### Database: UUIDv7 IDs, No Timestamp Columns
+
+<details>
+<summary><strong>🚫 No <code>timestamp</code> / <code>date</code> / <code>time</code> / <code>interval</code> columns. No <code>uuid().defaultRandom()</code>. Zero exceptions.</strong></summary>
+
+**Rule:** Every PK is `uuid("id").primaryKey().notNull().default(sql\`uuidv7()\`)`. Drizzle's `timestamp`, `date`, `time`, and `interval` column factories are categorically banned. So is `defaultRandom()` on uuid columns (which generates UUIDv4 — random, not time-sortable).
+
+**Rationale:** UUIDv7's first 48 bits are a unix-millisecond timestamp ([RFC 9562](https://www.rfc-editor.org/rfc/rfc9562)). Every row's creation time is already in its primary key, so a separate `createdAt` column is redundant — and the PK index serves as a free time-sorted index. PostgreSQL 18.3 (which the IaC provisions) has `uuidv7()` as a built-in function.
+
+**Enforced by:**
+- `scripts/dev/lint/rules/no-timestamp-columns.ts`
+- `scripts/dev/lint/rules/no-uuid-default-random.ts`
+
+**Helpers:** `src/db/lib/uuid-time.ts` exports `timestampFromUuidv7(id)` and `uuidv7LowerBound(date)`.
+
+#### ✅ Correct
+```typescript
+import { sql } from "drizzle-orm"
+import { boolean, pgTable, uuid, varchar } from "drizzle-orm/pg-core"
+
+const coreTodos = pgTable("core_todos", {
+    id: uuid("id").primaryKey().notNull().default(sql`uuidv7()`),
+    title: varchar("title", { length: 256 }).notNull(),
+    completed: boolean("completed").notNull().default(false)
+})
+
+// Time-sorted scan via the PK index:
+db.select(...).from(coreTodos).orderBy(desc(coreTodos.id))
+
+// Recover creation time in app code:
+import { timestampFromUuidv7 } from "@/db/lib/uuid-time"
+const createdAt = timestampFromUuidv7(row.id)
+```
+
+#### ❌ Incorrect
+```typescript
+const coreTodos = pgTable("core_todos", {
+    id: uuid("id").defaultRandom().primaryKey(),                                // UUIDv4 — banned
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),    // banned
+    updatedAt: timestamp("updated_at").$onUpdate(() => new Date()),             // banned
+})
+```
+
+See [rules/no-timestamp-columns.md](rules/no-timestamp-columns.md) and [rules/no-uuid-default-random.md](rules/no-uuid-default-random.md) for the full rationale and the "but I really need a timestamp" answer (you don't).
+</details>
 
 <details>
 <summary><strong>⚠️ Human-led Database Migrations</strong></summary>

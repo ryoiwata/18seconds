@@ -5,8 +5,10 @@ import { check as checkNullUndefinedUnion } from "@scripts/dev/lint/rules/null-u
 import { check as checkObjectModule } from "@scripts/dev/lint/rules/object-module"
 import { check as checkPointlessIndirection } from "@scripts/dev/lint/rules/pointless-indirection"
 import { check as checkPreferEarlyReturn } from "@scripts/dev/lint/rules/prefer-early-return"
+import { check as checkTimestampColumns } from "@scripts/dev/lint/rules/no-timestamp-columns"
 import { check as checkUnnecessaryCondition } from "@scripts/dev/lint/rules/unnecessary-condition"
 import { check as checkUnnecessaryDefaultCase } from "@scripts/dev/lint/rules/unnecessary-default-case"
+import { check as checkUuidDefaultRandom } from "@scripts/dev/lint/rules/no-uuid-default-random"
 import type { LintRule } from "@scripts/dev/lint/types"
 
 const rules: LintRule[] = [
@@ -18,7 +20,9 @@ const rules: LintRule[] = [
 	{ id: "no-logical-or-fallback", check: checkLogicalOrFallback },
 	{ id: "no-arrow-functions", check: checkArrowFunctions },
 	{ id: "no-object-module", check: checkObjectModule },
-	{ id: "no-pointless-indirection", check: checkPointlessIndirection }
+	{ id: "no-pointless-indirection", check: checkPointlessIndirection },
+	{ id: "no-timestamp-columns", check: checkTimestampColumns },
+	{ id: "no-uuid-default-random", check: checkUuidDefaultRandom }
 ]
 
 export { rules }

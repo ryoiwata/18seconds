@@ -8,11 +8,10 @@ const getTodos = db
 	.select({
 		id: coreTodos.id,
 		title: coreTodos.title,
-		completed: coreTodos.completed,
-		createdAt: coreTodos.createdAt
+		completed: coreTodos.completed
 	})
 	.from(coreTodos)
-	.orderBy(desc(coreTodos.createdAt))
+	.orderBy(desc(coreTodos.id))
 	.prepare("app_page_get_todos")
 
 type Todo = Awaited<ReturnType<typeof getTodos.execute>>[number]

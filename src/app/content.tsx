@@ -52,8 +52,7 @@ function Content({ todosPromise }: { todosPromise: Promise<Todo[]> }) {
 				todo: {
 					id: crypto.randomUUID(),
 					title: trimmed,
-					completed: false,
-					createdAt: new Date()
+					completed: false
 				}
 			})
 			await createTodo(trimmed)

@@ -10,6 +10,8 @@ type RuleId =
 	| "no-arrow-functions"
 	| "no-object-module"
 	| "no-pointless-indirection"
+	| "no-timestamp-columns"
+	| "no-uuid-default-random"
 
 interface Violation {
 	file: string
