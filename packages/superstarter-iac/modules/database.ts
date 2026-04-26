@@ -122,6 +122,11 @@ async function provisionDatabase(input: DatabaseInput): Promise<DatabaseOutput> 
 					Effect: "Allow",
 					Action: ["rds-db:connect"],
 					Resource: dbConnectArn
+				},
+				{
+					Effect: "Allow",
+					Action: ["secretsmanager:GetSecretValue"],
+					Resource: masterSecretArn
 				}
 			]
 		}

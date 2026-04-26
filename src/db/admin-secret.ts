@@ -1,5 +1,6 @@
 import { GetSecretValueCommand, SecretsManagerClient } from "@aws-sdk/client-secrets-manager"
 import * as errors from "@superbuilders/errors"
+import { awsCredentialsProvider } from "@vercel/oidc-aws-credentials-provider"
 import { z } from "zod"
 import { AWS_REGION } from "@/db/constants"
 import { env } from "@/env"
@@ -18,7 +19,10 @@ async function fetchAdminSecret(): Promise<AdminSecret> {
 		throw errors.new("DATABASE_ADMIN_SECRET_ARN required for admin operations")
 	}
 
-	const client = new SecretsManagerClient({ region: AWS_REGION })
+	const client = new SecretsManagerClient({
+		region: AWS_REGION,
+		credentials: awsCredentialsProvider({ roleArn: env.AWS_ROLE_ARN })
+	})
 
 	const response = await errors.try(
 		client.send(new GetSecretValueCommand({ SecretId: env.DATABASE_ADMIN_SECRET_ARN }))

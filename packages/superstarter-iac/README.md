@@ -4,10 +4,10 @@ Minimum-viable AWS infrastructure for superstarter:
 
 - One **RDS Postgres** instance in the AWS account's default VPC, smallest sizing (`db.t4g.micro`, single AZ, 20 GB gp3, no backups, no deletion protection).
 - One **IAM OIDC provider** federated with Vercel.
-- One **IAM role** assumable by the Vercel project via OIDC, granted `rds-db:connect` for the `app` database user.
-- Master password is auto-generated and stored in **AWS Secrets Manager** (used only by the deployer locally for `db:push:programs` and migrations — never by the app).
+- One **IAM role** assumable by the Vercel project via OIDC, granted `rds-db:connect` for the `app` database user **and** `secretsmanager:GetSecretValue` on the master secret.
+- Master password is auto-generated and stored in **AWS Secrets Manager**. The runtime app never reads it (it uses RDS IAM auth as `app`); admin scripts (`db:push:programs`, `db:migrate`, `db:studio`) read it via the same Vercel OIDC role — no DevFactory creds needed for day-to-day db work.
 
-The app itself connects as the `app` user with **RDS IAM authentication** — no DB password ever lives in env vars or Vercel.
+The app itself connects as the `app` user with **RDS IAM authentication** — no DB password ever lives in env vars or Vercel. DevFactory credentials are only required to run `bun run deploy` / `destroy` inside this iac package.
 
 ## Team model — no per-user lockdown
 
@@ -67,18 +67,20 @@ The deploy logs print the env vars to paste into your Vercel project:
 
 - `AWS_ROLE_ARN` — the IAM role the Vercel runtime assumes via OIDC
 - `DATABASE_HOST` — the RDS endpoint
-- `DATABASE_ADMIN_SECRET_ARN` — the master secret ARN (set this **only in your local `.env`**, used by `db:push:programs` and migrations; do **not** add to Vercel)
+- `DATABASE_ADMIN_SECRET_ARN` — the master secret ARN. Safe to put in Vercel env: the runtime role has `secretsmanager:GetSecretValue` on this ARN, so admin scripts authenticate via OIDC. The simplest workflow is to set all three in Vercel once, then `vercel env pull --environment=development` to populate `.env.local` for every dev.
 
-`VERCEL_OIDC_TOKEN` is auto-injected by Vercel — no paste needed.
+`VERCEL_OIDC_TOKEN` is auto-injected by Vercel and pulled into `.env.local` by `vercel env pull` — no manual paste needed.
 
 ## Bootstrap the database
 
-After the IaC deploy, with the env vars set in `.env`:
+After the IaC deploy, with `.env.local` populated via `vercel env pull`:
 
 ```bash
 bun db:push:programs   # creates the `app` user, grants rds_iam, installs pgcrypto
 bun db:push            # pushes the table schema (core_todos, …)
 ```
+
+Both commands authenticate to AWS via the Vercel OIDC token in `.env.local` — no DevFactory dump required.
 
 ## Destroy
 
