@@ -3,56 +3,59 @@
 [![Built with Biome](https://img.shields.io/badge/formatter-Biome-blueviolet?style=flat-square&logo=biome)](https://biomejs.dev)
 [![Linted with GritQL](https://img.shields.io/badge/linter-GritQL-orange?style=flat-square)](https://www.grit.io/docs)
 
-A comprehensive, highly-opinionated starter template for building robust and scalable full-stack applications. This template integrates Next.js with Drizzle ORM, Inngest, and a powerful, custom-enforced set of coding standards called the Superbuilder Ruleset, powered by Biome and GritQL.
+A comprehensive, highly-opinionated starter template for building robust and scalable full-stack applications. This template integrates Next.js with Drizzle ORM, Vercel Workflows, AWS RDS Postgres (IAM auth via OIDC), and a powerful, custom-enforced set of coding standards called the Superbuilder Ruleset, powered by Biome and GritQL.
 
 The philosophy of this starter is simple: **prevent entire classes of bugs at the source**. By enforcing strict patterns for error handling, data consistency, and type safety, we aim to build applications that are not only fast and modern but also exceptionally maintainable and reliable.
 
 ## Core Technologies
 
 *   **Framework**: [Next.js](https://nextjs.org/) (App Router)
+*   **Runtime**: [Bun](https://bun.sh/)
 *   **ORM**: [Drizzle ORM](https://orm.drizzle.team/) (with PostgreSQL)
-*   **Background Jobs**: [Inngest](https://www.inngest.com/)
+*   **Async Workflows**: [Vercel Workflows](https://useworkflow.dev/) (`"use workflow"` / `"use step"` directives)
+*   **Infrastructure**: AWS via [Alchemy](https://alchemy.run) — see [`packages/superstarter-iac`](packages/superstarter-iac/README.md)
+*   **Auth model**: Vercel ↔ AWS OIDC federation; runtime mints per-connection RDS IAM auth tokens (no DB password in env)
 *   **Linting & Formatting**: [Biome](https://biomejs.dev/)
 *   **Custom Static Analysis**: [GritQL](https://www.grit.io/)
 *   **Environment Variables**: [T3 Env](https://env.t3.gg/)
 *   **Error Handling**: A custom, robust error handling library (`@superbuilders/errors`)
-*   **Logging**: A structured logging library (`@superbuilders/slog`)
+*   **Logging**: [Pino](https://getpino.io/) via a centralised `@/logger`
+*   **TypeScript**: [TypeScript 7.0 Beta](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0-beta/) via `tsgo` (with `@typescript/typescript6` aliased as `typescript` for tools that need the legacy peer)
 
 ## Getting Started
 
 ### Prerequisites
 
-*   [Bun](https://bun.sh/)
-*   Node.js
-*   A PostgreSQL database
+*   [Bun](https://bun.sh/) (1.3+)
+*   AWS account with credentials in `~/.aws/credentials` and a default VPC in `us-east-1`
+*   Vercel project (note its team slug + project name)
 
 ### Installation
 
-1.  **Clone the repository:**
+1.  **Clone and install:**
     ```bash
     git clone https://github.com/superbuilders/superstarter.git
     cd superstarter
-    ```
-
-2.  **Install dependencies:**
-    ```bash
     bun install
     ```
 
-3.  **Set up environment variables:**
-    Copy the `src/env.js` file's `server` schema to a new `.env` file and fill in your database connection string.
+2.  **Provision AWS infrastructure** (RDS Postgres, IAM OIDC provider, Vercel role):
+    ```bash
+    cd packages/superstarter-iac
+    VERCEL_TEAM_SLUG=<slug> ALCHEMY_PASSWORD=<32+ char secret> bun run deploy
+    cd ../..
+    ```
+    The deploy logs print the env vars to paste into Vercel and your local `.env`. See [`packages/superstarter-iac/README.md`](packages/superstarter-iac/README.md) for the full team workflow.
+
+3.  **Set up environment variables:** Copy `.env.example` to `.env` and fill in the values from the IaC deploy output:
     ```bash
     cp .env.example .env
     ```
-    Your `.env` file should look like this:
-    ```.env
-    DATABASE_URL="postgresql://user:password@host:port/dbname?schema=public"
-    ```
 
-4.  **Push the database schema:**
-    This command will sync your Drizzle schema with your database.
+4.  **Bootstrap the database:**
     ```bash
-    bun db:push
+    bun db:push:programs    # creates the `app` user, grants rds_iam, installs pgcrypto
+    bun db:push             # pushes the table schema (core_todos, …)
     ```
 
 5.  **Run the development server:**
@@ -85,15 +88,12 @@ We enforce a Go-inspired error handling pattern that favors explicit error check
 ```typescript
 import * as errors from "@superbuilders/errors";
 
-// Wrapping a function that might fail
 const result = await errors.try(somePromise());
 if (result.error) {
-	// Propagate the error with additional context
 	throw errors.wrap(result.error, "failed to process something");
 }
-const data = result.data; // data is safely available here
+const data = result.data;
 
-// Creating a new error
 if (!isValid) {
 	throw errors.new("validation failed: input is not valid");
 }
@@ -104,7 +104,6 @@ if (!isValid) {
 try {
 	const data = await somePromise();
 } catch (e) {
-	// Unstructured, inconsistent error handling
 	throw new Error("Something went wrong");
 }
 ```
@@ -113,63 +112,29 @@ try {
 <details>
 <summary><strong>📜 Enforce Structured Logging</strong></summary>
 
-**Rule:** All logging must use the `@superbuilders/slog` library. Log messages must be terse, with all context provided as a key-value object. Never use string interpolation or pass more than two arguments (message and context).
+**Rule:** All logging must use Pino via the centralised `@/logger` module. Log calls take an optional context object first and a string-literal message second.
 
-**Rationale:** Structured logging produces machine-readable logs that are easy to parse, query, and monitor. It enforces consistency and ensures that critical context is never lost in a simple string. For Inngest functions, always use the `logger` provided in the function arguments to ensure proper log flushing in serverless environments.
+**Rationale:** Structured logging produces machine-readable logs that are easy to parse, query, and monitor. Object-first calls keep messages terse and ensure context is never lost in a string.
 
 **Enforced by:** `gritql/logger-structured-args.grit`
 
 #### ✅ Correct
 ```typescript
-import * as logger from "@superbuilders/slog";
+import { logger } from "@/logger";
 
-logger.info("user created", { userId: user.id, plan: "premium" });
-logger.error("database connection failed", { error: err, attempt: 3 });
+logger.info({ userId: user.id, plan: "premium" }, "user created");
+logger.error({ error: err, attempt: 3 }, "database connection failed");
 ```
 
 #### ❌ Incorrect
 ```typescript
-// Banned: String interpolation
 console.log(`User ${user.id} was created with plan ${plan}.`);
-
-// Banned: Non-structured logging call (too many arguments)
 logger.info("User created", user.id, "premium");
-
-// Banned: First argument is not a simple string
 logger.info("user created: " + user.id);
 ```
 </details>
 
-### Database & Background Jobs (Drizzle & Inngest)
-
-<details>
-<summary><strong>🚫 Ban <code>db.select</code> inside Inngest <code>step.run()</code></strong></summary>
-
-**Rule:** Using `db.select()` or similar data-fetching methods inside an Inngest `step.run()` closure is strictly prohibited.
-
-**Rationale:** The output of `step.run()` is serialized to JSON and sent over the network for memoization. Fetching and returning large database payloads can cause severe performance degradation, network bloat, and potential "request entity too large" errors. Data should be fetched *before* `step.run()`, or a dedicated data-fetching function should be called via `step.invoke()`.
-
-**Enforced by:** `gritql/no-db-select-in-step-run.grit`
-
-#### ✅ Correct
-```typescript
-// Fetch data BEFORE the step
-const user = await db.query.users.findFirst({ where: eq(users.id, event.data.userId) });
-
-// Pass only essential primitives into the step if needed
-const result = await step.run("process-user-action", async () => {
-    return await someExternalApiCall({ externalId: user.externalId });
-});
-```
-
-#### ❌ Incorrect
-```typescript
-const userPayload = await step.run("fetch-user", async () => {
-    // This entire user object would be serialized and sent over HTTP
-    return await db.query.users.findFirst({ where: eq(users.id, event.data.userId) });
-});
-```
-</details>
+### Database Migrations
 
 <details>
 <summary><strong>⚠️ Human-led Database Migrations</strong></summary>
@@ -179,10 +144,10 @@ const userPayload = await step.run("fetch-user", async () => {
 **Rationale:** Automated migration generation is dangerous and can lead to irreversible data loss. All schema changes require careful human review to assess impact, ensure data integrity, and plan for production deployment.
 
 **Process:**
-1.  Modify the schema files in `src/db/schemas/`.
+1.  Modify a table file in `src/db/schemas/<domain>/<table>.ts` (one table per file).
 2.  **Manually** run `bun db:generate` to create a migration file.
 3.  Carefully review the generated SQL migration.
-4.  Apply the migration with `bun db:push` or a similar command.
+4.  Apply with `bun db:push` or `bun db:migrate`.
 </details>
 
 ### Type Safety & Data Consistency
@@ -198,10 +163,8 @@ const userPayload = await step.run("fetch-user", async () => {
 
 #### ✅ Correct
 ```typescript
-// Allowed for const assertions
 const command = 'start' as const;
 
-// Safe type narrowing
 if (typeof value === 'string') {
     // value is now safely typed as string
 }
@@ -210,9 +173,6 @@ if (typeof value === 'string') {
 #### ❌ Incorrect
 ```typescript
 const response: unknown = { id: 1 };
-
-// This is an unsafe cast and is banned.
-// If `response` doesn't have a `name` property, it will cause a runtime error.
 const user = response as { id: number; name: string };
 ```
 </details>
@@ -220,29 +180,25 @@ const user = response as { id: number; name: string };
 <details>
 <summary><strong>❓ Prefer <code>undefined</code> over <code>null</code></strong></summary>
 
-**Rule:** The use of `null` is forbidden in type declarations (annotations, aliases, generics). Always use `undefined` for representing missing or absent values.
+**Rule:** Types must never include both `null` AND `undefined` at function boundaries. Prefer `undefined` (optionals) for all internal types; only use `null` when writing to an external API that requires it.
 
-**Rationale:** JavaScript has two values for "nothing" (`null` and `undefined`), which can lead to confusion and boilerplate checks. By standardizing on `undefined`, we simplify logic, align with modern JavaScript idioms (e.g., optional chaining `?.`), and create a more consistent codebase.
+**Rationale:** JavaScript has two values for "nothing" which can lead to confusion and triple-state branching. Standardising on `undefined` aligns with TypeScript's optional syntax (`?:`) and modern idioms (optional chaining `?.`).
 
-**Enforced by:** `gritql/prefer-undefined-over-null.grit`
+**Enforced by:** `super-lint.ts` rule `no-null-undefined-union`
 
 #### ✅ Correct
 ```typescript
-const [value, setValue] = React.useState<string | undefined>(undefined);
-
-type UserProfile = {
+interface UserProfile {
     name: string;
-    bio: string | undefined;
+    bio?: string;
 }
 ```
 
 #### ❌ Incorrect
 ```typescript
-const [value, setValue] = React.useState<string | null>(null);
-
-type UserProfile = {
+interface UserProfile {
     name: string;
-    bio: string | null;
+    bio: string | null | undefined;
 }
 ```
 </details>
@@ -261,45 +217,47 @@ Beyond the custom GritQL rules, this template uses a strict Biome configuration 
 
 ## File Structure
 
-The project follows a feature-colocated structure within the Next.js `src/app` directory.
-
 ```
 .
-├── gritql/                  # Custom GritQL linting rules
-├── public/                  # Static assets
-├── rules/                   # Markdown documentation for custom rules
+├── gritql/                            # Custom GritQL linting rules
+├── packages/
+│   └── superstarter-iac/              # Alchemy IaC workspace (AWS RDS + OIDC + Vercel role)
+├── public/                            # Static assets
+├── rules/                             # Markdown documentation for custom rules
 └── src/
-    ├── app/                 # Next.js App Router
-    │   ├── api/             # API routes (e.g., for Inngest)
-    │   ├── page.tsx         # Home page component
-    │   └── layout.tsx       # Root layout
-    ├── db/                  # Drizzle ORM setup
-    │   ├── schemas/         # Database table schemas
-    │   ├── scripts/         # Utility scripts (e.g., drop schema)
-    │   └── index.ts         # Drizzle client instance
-    ├── inngest/             # Inngest client and functions
-    │   ├── functions/       # Inngest function definitions
-    │   └── client.ts        # Inngest client initialization
-    ├── styles/              # Global styles
-    ├── env.js               # Environment variable validation (T3 Env)
-    └── biome.json           # Biome linter and formatter configuration
+    ├── app/                           # Next.js App Router
+    │   ├── page.tsx                   # Home page (server component)
+    │   ├── content.tsx                # Client component (useOptimistic todos)
+    │   ├── actions.ts                 # Server actions (revalidatePath after mutations)
+    │   └── layout.tsx                 # Root layout
+    ├── components/ui/                 # shadcn/ui components
+    ├── db/                            # Drizzle ORM
+    │   ├── schemas/<domain>/<table>.ts  # One table per file
+    │   ├── schema.ts                  # Barrel
+    │   ├── index.ts                   # IAM-auth pool (app user, OIDC creds)
+    │   ├── admin.ts                   # Admin pool (Secrets Manager) for scripts
+    │   ├── programs/                  # SQL programs (app_user role, grants, pgcrypto)
+    │   └── scripts/                   # drizzle-kit shim, push-programs, drop-schema
+    ├── workflows/                     # Vercel Workflow definitions ("use workflow")
+    ├── styles/                        # Global styles
+    ├── env.ts                         # Environment variable validation (T3 Env)
+    └── logger.ts                      # Pino logger
 ```
 
 ## Available Commands
 
-| Command             | Description                                          |
-| ------------------- | ---------------------------------------------------- |
-| `bun build`         | Builds the application for production.               |
-| `bun check`         | Runs Biome linter and formatter checks.              |
-| `bun check:unsafe`  | Runs Biome checks with unsafe auto-fixes applied.    |
-| `bun check:write`   | Runs Biome checks and applies safe auto-fixes.       |
-| `bun db:generate`   | Generates a SQL migration file from schema changes.  |
-| `bun db:migrate`    | Applies pending database migrations.                 |
-| `bun db:push`       | Pushes schema changes directly to the database.      |
-| `bun db:studio`     | Opens the Drizzle Studio to browse your data.        |
-| `bun db:drop`       | **DANGER:** Drops the database schema.              |
-| `bun dev`           | Starts the development server with Turbo.            |
-| `bun dev:inngest`   | Starts the Inngest development server.               |
-| `bun preview`       | Builds and starts the production server.             |
-| `bun start`         | Starts the production server.                        |
-| `bun typecheck`     | Runs TypeScript type checking and Biome formatting.  |
+| Command                    | Description                                                                |
+| -------------------------- | -------------------------------------------------------------------------- |
+| `bun dev`                  | Starts the Next.js development server.                                     |
+| `bun build`                | Builds the application for production.                                     |
+| `bun start`                | Starts the production server.                                              |
+| `bun typecheck`            | Runs TypeScript 7 type checking via `tsgo`.                                |
+| `bun lint`                 | Runs Biome and the custom super-lint on staged files.                      |
+| `bun lint:all`             | Runs Biome and super-lint across the whole repo.                           |
+| `bun format`               | Strips comments and applies Biome formatting.                              |
+| `bun db:generate`          | Generates a SQL migration file from schema changes.                        |
+| `bun db:migrate`           | Applies pending migrations and runs `db:push:programs`.                    |
+| `bun db:push`              | Pushes schema directly to the database and runs `db:push:programs`.        |
+| `bun db:push:programs`     | Creates the `app` user, grants `rds_iam`, installs `pgcrypto`.             |
+| `bun db:studio`            | Opens Drizzle Studio.                                                      |
+| `bun db:drop:schema`       | **DANGER:** Drops the named schema(s) using admin credentials.             |

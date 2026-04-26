@@ -48,8 +48,14 @@ async function discoverDefaultNetwork(context: ModuleContext): Promise<NetworkOu
 		throw errors.wrap(subnetsResult.error, "describe default subnets")
 	}
 
+	const subnets = subnetsResult.data.Subnets
+	if (!subnets) {
+		logger.error({ vpcId }, "describe subnets returned no Subnets array")
+		throw errors.new("describe subnets returned no Subnets array")
+	}
+
 	const subnetIds: string[] = []
-	for (const subnet of subnetsResult.data.Subnets ?? []) {
+	for (const subnet of subnets) {
 		if (subnet.SubnetId) {
 			subnetIds.push(subnet.SubnetId)
 		}

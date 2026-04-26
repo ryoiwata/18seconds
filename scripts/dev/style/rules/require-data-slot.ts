@@ -33,7 +33,9 @@ function walkNode(node: ts.Node, violations: Violation[], sourceFile: ts.SourceF
 		checkVariableStatement(node, violations, sourceFile)
 	}
 
-	ts.forEachChild(node, (child) => walkNode(child, violations, sourceFile))
+	ts.forEachChild(node, function visit(child: ts.Node) {
+		walkNode(child, violations, sourceFile)
+	})
 }
 
 function checkVariableStatement(

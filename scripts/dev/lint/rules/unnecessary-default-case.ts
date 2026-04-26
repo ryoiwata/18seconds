@@ -32,7 +32,11 @@ function check(sourceFile: ts.SourceFile, checker: ts.TypeChecker): Violation[] 
 			return !handledTypes.has(t)
 		}
 
-		const missingTypes = unionTypes.map((t) => checker.typeToString(t)).filter(isUnhandled)
+		const missingTypes = unionTypes
+			.map(function typeToStr(t: ts.Type): string {
+				return checker.typeToString(t)
+			})
+			.filter(isUnhandled)
 
 		if (missingTypes.length > 0) {
 			return

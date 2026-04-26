@@ -12,7 +12,7 @@ function isErrorsTryAssignment(node: ts.Statement): string | null {
 		return null
 	}
 	const decl = node.declarationList.declarations[0]
-	if (!decl || !decl.initializer) {
+	if (!decl?.initializer) {
 		return null
 	}
 	if (!ts.isIdentifier(decl.name)) {

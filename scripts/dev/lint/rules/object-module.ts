@@ -154,7 +154,7 @@ function check(sourceFile: ts.SourceFile): Violation[] {
 			ts.isObjectLiteralExpression(node.expression)
 		) {
 			const func = findEnclosingFunction(node)
-			if (!func || !func.type) {
+			if (!func?.type) {
 				checkObjectLiteral(node.expression, node.expression, true)
 			}
 		}

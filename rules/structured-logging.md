@@ -26,38 +26,6 @@ logger.error({ error: result.error }, "operation failed")
 logger.debug({ userId, action: "login" }, "user authenticated")
 ```
 
-#### ⚠️ CRITICAL: Inngest Functions Exception
-
-**For Inngest functions, use the `logger` parameter instead of importing the central logger.** Inngest provides its own logger middleware that handles serverless-specific logging issues like incomplete log flushing and duplicated log deliveries.
-
-```typescript
-// ✅ CORRECT: In Inngest functions, use the logger parameter
-inngest.createFunction(
-	{ id: "my-function" },
-	{ event: "app/some.event" },
-	async ({ event, logger }) => {
-		logger.info({ eventId: event.id }, "starting function")
-	}
-)
-
-// ❌ WRONG: Don't import the central logger in Inngest functions
-import { logger } from "@/logger"
-inngest.createFunction(
-	{ id: "my-function" },
-	{ event: "app/some.event" },
-	async ({ event }) => {
-		logger.info({ eventId: event.id }, "starting function")
-	}
-)
-```
-
-**Why this exception exists:**
-- Serverless functions can terminate before logs are flushed
-- Inngest's memoization can cause log statements outside steps to run multiple times
-- Inngest v4 natively supports Pino — it auto-detects `.child()` and `.flush()`
-
-**Outside of Inngest functions** (utility functions, database operations, etc.), use `import { logger } from "@/logger"`.
-
 #### ⚠️ CRITICAL: Logging AND Error Handling Together
 
 Always use BOTH logging and error handling patterns together:
