@@ -16,10 +16,9 @@ const env = createEnv({
 	 * isn't built with invalid env vars.
 	 */
 	server: {
-		DATABASE_URL: z.url(),
-		DATABASE_DIRECT_URL: z.url(),
-		INNGEST_EVENT_KEY: z.string().optional(),
-		INNGEST_SIGNING_KEY: z.string().optional(),
+		AWS_ROLE_ARN: z.string().startsWith("arn:aws:iam::"),
+		DATABASE_HOST: z.string().min(1),
+		DATABASE_ADMIN_SECRET_ARN: z.string().startsWith("arn:aws:secretsmanager:").optional(),
 		VERCEL_PROJECT_PRODUCTION_URL: z.string().optional(),
 		VERCEL_GIT_COMMIT_SHA: z.string().optional(),
 		VERCEL_OIDC_TOKEN: z.string().optional(),
@@ -40,10 +39,9 @@ const env = createEnv({
 	 * middlewares) or client-side so we need to destruct manually.
 	 */
 	runtimeEnv: {
-		DATABASE_URL: process.env.DATABASE_URL,
-		DATABASE_DIRECT_URL: process.env.DATABASE_DIRECT_URL,
-		INNGEST_EVENT_KEY: process.env.INNGEST_EVENT_KEY,
-		INNGEST_SIGNING_KEY: process.env.INNGEST_SIGNING_KEY,
+		AWS_ROLE_ARN: process.env.AWS_ROLE_ARN,
+		DATABASE_HOST: process.env.DATABASE_HOST,
+		DATABASE_ADMIN_SECRET_ARN: process.env.DATABASE_ADMIN_SECRET_ARN,
 		VERCEL_PROJECT_PRODUCTION_URL: process.env.VERCEL_PROJECT_PRODUCTION_URL,
 		VERCEL_GIT_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA,
 		VERCEL_OIDC_TOKEN: process.env.VERCEL_OIDC_TOKEN,

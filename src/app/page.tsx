@@ -1,7 +1,7 @@
 import * as React from "react"
 import { desc } from "drizzle-orm"
 import { db } from "@/db"
-import { coreTodos } from "@/db/schemas/core"
+import { coreTodos } from "@/db/schemas/core/todos"
 import { Content } from "@/app/content"
 
 const getTodos = db

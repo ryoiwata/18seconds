@@ -1,16 +1,15 @@
+// biome-ignore-all lint/style/noProcessEnv: drizzle.config runs under the shim that injects DATABASE_URL
 import type { Config } from "drizzle-kit"
 
-import { env } from "@/env"
+const databaseUrl = process.env.DATABASE_URL
+if (!databaseUrl) {
+	throw new Error("DATABASE_URL not set; run drizzle-kit via the shim (bun db:push, db:migrate, …)")
+}
 
 export default {
-	schema: "./src/db/schemas/core.ts",
+	schema: "./src/db/schemas/**/*.ts",
 	dialect: "postgresql",
 	dbCredentials: {
-		url: env.DATABASE_URL
-	},
-	schemaFilter: ["core"],
-	migrations: {
-		table: "__drizzle_migrations",
-		schema: "core"
+		url: databaseUrl
 	}
 } satisfies Config

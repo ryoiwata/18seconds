@@ -1,7 +1,7 @@
 import "@/env"
 import * as errors from "@superbuilders/errors"
 import { sql } from "drizzle-orm"
-import { db } from "@/db"
+import { createAdminDb } from "@/db/admin"
 import { logger } from "@/logger"
 
 async function dropSchemas(schemaNames: string[]) {
@@ -9,6 +9,8 @@ async function dropSchemas(schemaNames: string[]) {
 		logger.info("no schemas specified to drop")
 		process.exit(0)
 	}
+
+	await using adminDb = await createAdminDb()
 
 	let success = true
 
@@ -19,16 +21,10 @@ async function dropSchemas(schemaNames: string[]) {
 		}
 
 		const result = await errors.try(
-			db.execute(sql`DROP SCHEMA IF EXISTS ${sql.identifier(schemaName)} CASCADE`)
+			adminDb.db.execute(sql`DROP SCHEMA IF EXISTS ${sql.identifier(schemaName)} CASCADE`)
 		)
 		if (result.error) {
-			logger.error(
-				{
-					schema: schemaName,
-					error: result.error
-				},
-				"failed to drop schema"
-			)
+			logger.error({ schema: schemaName, error: result.error }, "failed to drop schema")
 			success = false
 		} else {
 			logger.info({ schema: schemaName }, "successfully dropped schema")

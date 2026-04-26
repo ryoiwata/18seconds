@@ -1,70 +1,40 @@
 "use client"
 
-import { useInngestSubscription } from "@inngest/realtime/hooks"
 import { Trash2 } from "lucide-react"
 import * as React from "react"
-import { createTodo, deleteTodo, getRealtimeToken, toggleTodo } from "@/app/actions"
+import { createTodo, deleteTodo, toggleTodo } from "@/app/actions"
 import type { Todo } from "@/app/page"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 
+type OptimisticAction =
+	| { kind: "create"; todo: Todo }
+	| { kind: "toggle"; id: string }
+	| { kind: "delete"; id: string }
+
+function reduceOptimistic(state: Todo[], action: OptimisticAction): Todo[] {
+	if (action.kind === "create") {
+		return [action.todo, ...state]
+	}
+	if (action.kind === "toggle") {
+		return state.map(function applyToggle(todo) {
+			if (todo.id !== action.id) {
+				return todo
+			}
+			return { ...todo, completed: !todo.completed }
+		})
+	}
+	return state.filter(function keep(todo) {
+		return todo.id !== action.id
+	})
+}
+
 function Content({ todosPromise }: { todosPromise: Promise<Todo[]> }) {
-	const initialTodos = React.use(todosPromise)
-	const [todos, setTodos] = React.useState(initialTodos)
+	const todos = React.use(todosPromise)
+	const [optimisticTodos, applyOptimistic] = React.useOptimistic(todos, reduceOptimistic)
 	const [title, setTitle] = React.useState("")
 	const [isPending, startTransition] = React.useTransition()
-
-	const { latestData } = useInngestSubscription({
-		enabled: true,
-		refreshToken: getRealtimeToken
-	})
-
-	React.useEffect(
-		function applyRealtimeMessage() {
-			if (!latestData) {
-				return
-			}
-
-			const { topic, data } = latestData
-
-			if (topic === "deleted") {
-				setTodos(function removeDeleted(prev) {
-					return prev.filter(function keep(t) {
-						return t.id !== data.id
-					})
-				})
-				return
-			}
-
-			if (topic === "created") {
-				const todo = data.data
-				setTodos(function addCreated(prev) {
-					const exists = prev.some(function match(t) {
-						return t.id === todo.id
-					})
-					if (exists) {
-						return prev
-					}
-					return [todo, ...prev]
-				})
-				return
-			}
-
-			if (topic === "updated") {
-				const todo = data.data
-				setTodos(function applyUpdate(prev) {
-					return prev.map(function update(t) {
-						if (t.id !== todo.id) {
-							return t
-						}
-						return todo
-					})
-				})
-			}
-		},
-		[latestData]
-	)
 
 	function handleCreate(formData: FormData) {
 		const value = formData.get("title")
@@ -77,18 +47,29 @@ function Content({ todosPromise }: { todosPromise: Promise<Todo[]> }) {
 		}
 		setTitle("")
 		startTransition(async () => {
+			applyOptimistic({
+				kind: "create",
+				todo: {
+					id: crypto.randomUUID(),
+					title: trimmed,
+					completed: false,
+					createdAt: new Date()
+				}
+			})
 			await createTodo(trimmed)
 		})
 	}
 
 	function handleToggle(id: string) {
 		startTransition(async () => {
+			applyOptimistic({ kind: "toggle", id })
 			await toggleTodo(id)
 		})
 	}
 
 	function handleDelete(id: string) {
 		startTransition(async () => {
+			applyOptimistic({ kind: "delete", id })
 			await deleteTodo(id)
 		})
 	}
@@ -112,11 +93,11 @@ function Content({ todosPromise }: { todosPromise: Promise<Todo[]> }) {
 							Add
 						</Button>
 					</form>
-					{todos.length === 0 && (
+					{optimisticTodos.length === 0 && (
 						<p className="text-center text-muted-foreground text-sm">No todos yet</p>
 					)}
 					<ul className="flex flex-col gap-1">
-						{todos.map(function renderTodo(todo) {
+						{optimisticTodos.map(function renderTodo(todo) {
 							const textClass = todo.completed ? "line-through text-muted-foreground" : ""
 							return (
 								<li key={todo.id} className="flex items-center gap-2 rounded-md px-2 py-1">

@@ -1,4 +1,5 @@
 import type { NextConfig } from "next"
+import { withWorkflow } from "workflow/next"
 import "@/env"
 
 const config = {
@@ -16,4 +17,4 @@ const config = {
 	}
 } satisfies NextConfig
 
-export default config
+export default withWorkflow(config)

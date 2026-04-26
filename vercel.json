@@ -1,10 +1,4 @@
 {
 	"bunVersion": "1.x",
-	"regions": ["iad1"],
-	"functions": {
-		"src/app/api/heartbeat/route.ts": {
-			"maxDuration": 800
-		}
-	},
-	"crons": [{ "path": "/api/heartbeat", "schedule": "*/6 * * * *" }]
+	"regions": ["iad1"]
 }
