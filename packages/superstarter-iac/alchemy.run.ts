@@ -5,7 +5,7 @@ import { resolveAccountId } from "@/lib/deployer"
 import { logger } from "@/logger"
 import { provisionDatabase } from "@/modules/database"
 import { provisionIdentity } from "@/modules/identity"
-import { discoverDefaultNetwork } from "@/modules/network"
+import { provisionNetwork } from "@/modules/network"
 import type { ModuleContext } from "@/modules/types"
 
 const REGION = "us-east-1"
@@ -43,7 +43,7 @@ const context: ModuleContext = {
 	tags
 }
 
-const network = await discoverDefaultNetwork(context)
+const network = await provisionNetwork(context)
 
 const identity = await provisionIdentity({
 	context,
@@ -56,7 +56,8 @@ const identity = await provisionIdentity({
 const database = await provisionDatabase({
 	context,
 	vpcId: network.vpcId,
-	subnetIds: network.subnetIds,
+	subnetAId: network.subnetAId,
+	subnetBId: network.subnetBId,
 	vercelRoleName: identity.roleName
 })
 

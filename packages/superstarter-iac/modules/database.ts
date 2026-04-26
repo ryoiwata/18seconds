@@ -13,7 +13,8 @@ const APP_DB_USER = "app"
 interface DatabaseInput {
 	readonly context: ModuleContext
 	readonly vpcId: string
-	readonly subnetIds: string[]
+	readonly subnetAId: string
+	readonly subnetBId: string
 	readonly vercelRoleName: string
 }
 
@@ -26,7 +27,7 @@ interface DatabaseOutput {
 }
 
 async function provisionDatabase(input: DatabaseInput): Promise<DatabaseOutput> {
-	const { context, vpcId, subnetIds, vercelRoleName } = input
+	const { context, vpcId, subnetAId, subnetBId, vercelRoleName } = input
 	const { stage, resourcePrefix, region, accountId, tags } = context
 
 	const dbSecurityGroup = await AWS.EC2.SecurityGroup(`db-sg-${stage}`, {
@@ -55,7 +56,7 @@ async function provisionDatabase(input: DatabaseInput): Promise<DatabaseOutput> 
 	await AWS.RDS.DBSubnetGroup(`db-subnets-${stage}`, {
 		DBSubnetGroupName: dbSubnetGroupName,
 		DBSubnetGroupDescription: `${resourcePrefix} postgres subnet group`,
-		SubnetIds: [...subnetIds],
+		SubnetIds: [subnetAId, subnetBId],
 		Tags: tags
 	})
 
