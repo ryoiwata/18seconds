@@ -1,6 +1,7 @@
 // biome-ignore-all lint/style/noProcessEnv: env wrapper needs to be able to access process.env
 import { createEnv } from "@t3-oss/env-nextjs"
 import { z } from "zod"
+import { logger } from "@/logger"
 
 const isServerRuntime = typeof window === "undefined"
 
@@ -8,6 +9,16 @@ if (!process.env.NEXT_RUNTIME && isServerRuntime) {
 	const { loadEnvConfig } = require("@next/env")
 	const projectDir = process.cwd()
 	loadEnvConfig(projectDir)
+}
+
+/** DO NOT FUCKING TOUCH THIS LINE OF CODE WE SHOULD ALWAYS LOG DEBUG.
+ * The old `!process.env.NEXT_RUNTIME` guard was broken: Next.js sets
+ * NEXT_RUNTIME="nodejs" inside API route handlers on Vercel, which
+ * made this block never fire in production, silently dropping every
+ * debug log. Set unconditionally on server.
+ */
+if (isServerRuntime) {
+	logger.level = "debug"
 }
 
 const env = createEnv({

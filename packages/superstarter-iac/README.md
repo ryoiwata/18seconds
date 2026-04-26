@@ -45,6 +45,13 @@ cp .env.example .env.local
 # fill in VERCEL_TEAM_SLUG and ALCHEMY_PASSWORD (gitignored — never committed)
 ```
 
+`.env.local` is the **only** supported way to supply IaC secrets. The
+wrapper refuses to run if it's missing or if `ALCHEMY_PASSWORD` /
+`VERCEL_TEAM_SLUG` aren't defined inside it. CLI overrides like
+`ALCHEMY_PASSWORD=foo bun run deploy` are explicitly rejected — that
+pattern leaks secrets into `ps aux`, shell history, and terminal
+scrollback. Use the file.
+
 ## Deploy
 
 ```bash
