@@ -37,12 +37,20 @@ State is shared via **git**, the idiomatic Alchemy way: `packages/superstarter-i
 
 (AWS credentials and `AWS_REGION=us-east-1` are injected automatically by `scripts/with-aws.ts` from the DevFactory dump — don't set them yourself.)
 
+## One-time setup (per developer)
+
+```bash
+cd packages/superstarter-iac
+cp .env.example .env.local
+# fill in VERCEL_TEAM_SLUG and ALCHEMY_PASSWORD (gitignored — never committed)
+```
+
 ## Deploy
 
 ```bash
 cd packages/superstarter-iac
 git pull
-VERCEL_TEAM_SLUG=<slug> ALCHEMY_PASSWORD=<32+ char secret> bun run deploy
+bun run deploy   # reads .env.local automatically (Bun auto-loads it)
 git add .alchemy && git commit -m "iac: deploy" && git push
 ```
 
