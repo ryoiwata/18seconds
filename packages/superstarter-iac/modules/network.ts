@@ -1,8 +1,4 @@
-import {
-	DescribeSubnetsCommand,
-	DescribeVpcsCommand,
-	EC2Client
-} from "@aws-sdk/client-ec2"
+import { DescribeSubnetsCommand, DescribeVpcsCommand, EC2Client } from "@aws-sdk/client-ec2"
 import * as errors from "@superbuilders/errors"
 import { logger } from "@/logger"
 import type { ModuleContext } from "@/modules/types"

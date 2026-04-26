@@ -30,9 +30,11 @@ async function provisionIdentity(input: IdentityInput): Promise<IdentityOutput> 
 	const conditionAudKey = `${oidcHost}/${teamSlug}:aud`
 	const conditionSubKey = `${oidcHost}/${teamSlug}:sub`
 	const conditionAudValue = `https://vercel.com/${teamSlug}`
-	const conditionSubValues = ["production", "preview", "development"].map(function formatSub(envName) {
-		return `owner:${teamSlug}:project:${projectName}:environment:${envName}`
-	})
+	const conditionSubValues = ["production", "preview", "development"].map(
+		function formatSub(envName) {
+			return `owner:${teamSlug}:project:${projectName}:environment:${envName}`
+		}
+	)
 
 	const roleName = `${resourcePrefix}-vercel`
 

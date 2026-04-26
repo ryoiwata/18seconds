@@ -279,21 +279,4 @@ function useComboboxAnchor() {
   return React.useRef<HTMLDivElement | null>(null)
 }
 
-export {
-  Combobox,
-  ComboboxInput,
-  ComboboxContent,
-  ComboboxList,
-  ComboboxItem,
-  ComboboxGroup,
-  ComboboxLabel,
-  ComboboxCollection,
-  ComboboxEmpty,
-  ComboboxSeparator,
-  ComboboxChips,
-  ComboboxChip,
-  ComboboxChipsInput,
-  ComboboxTrigger,
-  ComboboxValue,
-  useComboboxAnchor,
-}
+export { Combobox, ComboboxChip, ComboboxChips, ComboboxChipsInput, ComboboxCollection, ComboboxContent, ComboboxEmpty, ComboboxGroup, ComboboxInput, ComboboxItem, ComboboxLabel, ComboboxList, ComboboxSeparator, ComboboxTrigger, ComboboxValue, useComboboxAnchor }

@@ -23,7 +23,7 @@ State is shared via **git**, the idiomatic Alchemy way: `packages/superstarter-i
 
 ## Prerequisites
 
-- AWS credentials available to the local shell (`~/.aws/credentials` or `AWS_*` env vars). The credentials must be able to provision IAM, EC2, and RDS resources in `us-east-1`.
+- A fresh **DevFactory AWS credentials dump** at `~/Downloads/credentials.json` (or wherever `DEVFACTORY_CREDS_PATH` points). The `bun run deploy` wrapper auto-loads this — you don't need to set `AWS_*` env vars yourself.
 - The AWS account must have a **default VPC** in `us-east-1`. If it doesn't, run `aws ec2 create-default-vpc --region us-east-1` once before deploying.
 - Vercel project created (note its team slug and project name).
 
@@ -34,7 +34,8 @@ State is shared via **git**, the idiomatic Alchemy way: `packages/superstarter-i
 | `VERCEL_TEAM_SLUG` | Slug of your Vercel team (e.g. from the dashboard URL). |
 | `VERCEL_PROJECT_NAME` | Project name (defaults to `superstarter`). |
 | `ALCHEMY_PASSWORD` | ≥ 32 chars; encrypts secrets inside the committed `.alchemy/` state files. Shared across the team via password manager. |
-| `AWS_REGION` | Must be `us-east-1` (default). |
+
+(AWS credentials and `AWS_REGION=us-east-1` are injected automatically by `scripts/with-aws.ts` from the DevFactory dump — don't set them yourself.)
 
 ## Deploy
 
@@ -44,6 +45,8 @@ git pull
 VERCEL_TEAM_SLUG=<slug> ALCHEMY_PASSWORD=<32+ char secret> bun run deploy
 git add .alchemy && git commit -m "iac: deploy" && git push
 ```
+
+If you need to re-download a fresh credentials dump, the wrapper will tell you (it checks the `expiration` field and refuses to spawn alchemy if creds expire in under 60 seconds).
 
 The deploy logs print the env vars to paste into your Vercel project:
 

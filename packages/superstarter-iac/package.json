@@ -3,8 +3,8 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"deploy": "bun --bun run alchemy.run.ts",
-		"destroy": "bun --bun run alchemy.run.ts --destroy",
+		"deploy": "bun --bun run scripts/with-aws.ts bun --bun run alchemy.run.ts",
+		"destroy": "bun --bun run scripts/with-aws.ts bun --bun run alchemy.run.ts --destroy",
 		"typecheck": "bun --bun tsgo --noEmit"
 	},
 	"dependencies": {
