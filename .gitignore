@@ -50,3 +50,7 @@ src/app/.well-known/workflow/
 
 # prd
 prd.md
+
+# Claude
+.claude/tracking
+firebase-debug.log
