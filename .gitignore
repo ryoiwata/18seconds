@@ -55,6 +55,9 @@ prd.md
 .claude/tracking
 firebase-debug.log
 
+# Data
+data/testbank/
+
 # Misc.
 Untitled
 *untitled*
