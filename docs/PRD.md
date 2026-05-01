@@ -1,6 +1,6 @@
 # 18 Seconds — Product Requirements Document
 
-A self-service web application for adults preparing for the Criteria Cognitive Aptitude Test (CCAT). Users practice over 1–4 week prep cycles, building speed and accuracy across the 15 question sub-types that compose the test.
+A self-service web application for adults preparing for the Criteria Cognitive Aptitude Test (CCAT). Users practice over 1–4 week prep cycles, building speed and accuracy across the 14 question sub-types that compose the test.
 
 The CCAT is 50 multiple-choice questions in 15 minutes (~18 seconds per question), spanning verbal, numerical, and abstract reasoning. No calculator. Score is raw correct out of 50; average is 24/50.
 
@@ -32,9 +32,9 @@ Adults preparing for the CCAT as part of a hiring screen. Self-motivated, short 
 
 ### Sub-types
 
-The CCAT decomposes into 15 sub-types across three sections. The system treats each sub-type as an independent skill with its own mastery state, item bank, and latency threshold.
+The CCAT decomposes into 14 sub-types across three sections. The system treats each sub-type as an independent skill with its own mastery state, item bank, and latency threshold.
 
-The 15 sub-types use the following identifiers (used throughout the codebase as the canonical sub-type IDs):
+The 14 sub-types use the following identifiers (used throughout the codebase as the canonical sub-type IDs):
 
 **Verbal (5):**
 - `verbal.synonyms`
@@ -50,11 +50,10 @@ The 15 sub-types use the following identifiers (used throughout the codebase as 
 - `numerical.percentages`
 - `numerical.averages_ratios`
 
-**Abstract (5):**
+**Abstract (4):**
 - `abstract.odd_one_out`
 - `abstract.shape_series`
 - `abstract.matrix`
-- `abstract.transformations`
 - `abstract.next_in_series`
 
 The exact sub-type list is configurable via a single source-of-truth config file at `src/config/sub-types.ts`. Initial implementation should support adding a new sub-type by adding a config entry plus an item template — no other code changes.
@@ -64,7 +63,7 @@ The exact sub-type list is configurable via a single source-of-truth config file
 Every practice question (an "item") has:
 
 - A unique ID (UUIDv7 per the Superbuilder Ruleset)
-- A sub-type (one of the 15 IDs above)
+- A sub-type (one of the 14 IDs above)
 - A difficulty tier: `easy` | `medium` | `hard` | `brutal`
 - A source: `real` | `generated`
 - A status: `live` | `candidate` | `retired`
@@ -162,7 +161,7 @@ The user is never told which bank an item came from. The system tracks the sourc
 
 First time a user opens the app, they take a 50-question calibration test before anything else. No tutorial, no settings, no profile setup beyond auth.
 
-The diagnostic samples items proportionally across the 15 sub-types and across difficulty tiers. It runs in the same focus-mode shell as regular practice (see section 5).
+The diagnostic samples items proportionally across the 14 sub-types and across difficulty tiers. It runs in the same focus-mode shell as regular practice (see section 5).
 
 Output: a per-sub-type mastery estimate computed from the diagnostic attempts. The user lands on the Mastery Map (section 5.2) with mastery icons populated and a recommended first session queued up.
 
@@ -244,7 +243,7 @@ When a question's elapsed time exceeds 18 seconds, the periphery flashes a singl
 The default screen on app open (after auth and post-diagnostic). Contents:
 
 - **Today's near goal.** One categorical target rendered as a single line of text. Examples: "Master Next in Series by Friday — 2 sessions to go." or "Finish today's drill — 1 session left." Computed from current mastery state plus user's target date (section 6.3).
-- **Sub-type mastery icons.** 15 icons in a grid. Each icon shows mastery state via fill: `mastered` (filled), `fluent` (half-filled), `learning` (outlined), `not yet attempted` (locked). No percentages, no numbers, no scores beneath the icons.
+- **Sub-type mastery icons.** 14 icons in a grid. Each icon shows mastery state via fill: `mastered` (filled), `fluent` (half-filled), `learning` (outlined), `not yet attempted` (locked). No percentages, no numbers, no scores beneath the icons.
 - **Start session button.** Single primary CTA labeled with the next recommended session ("Start drill: Next in Series"). One button. No menu of options.
 - **Secondary actions.** Small, low-contrast: "Review (3 due)" if review items exist, "Full-length test," "Test-day simulation," "History."
 
@@ -512,4 +511,4 @@ A 2-week build plan, in priority order.
 
 ## Companion Documents
 
-- `CCAT-categories.md` — taxonomy and strategic notes for the 15 CCAT sub-types. Used as input to the strategy library and the generation pipeline's templates.
+- `CCAT-categories.md` — taxonomy and strategic notes for the 14 CCAT sub-types. Used as input to the strategy library and the generation pipeline's templates.

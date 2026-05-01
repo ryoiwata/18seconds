@@ -166,18 +166,17 @@ Patterns may apply:
 
 Matrix problems are the most likely category to consume the test-taker's time and are the strongest candidates for triage. If a pattern doesn't surface within the first few seconds, abandoning and guessing is usually the right call.
 
-### 3.4 Shape Transformations
+### 3.4 Next in Series
 
-Identify how a shape has been transformed between two states, or apply a stated transformation to predict a new state.
+Identify the next element in a visual sequence whose pattern is defined by stepwise progression rather than by transformation of a base shape.
 
-Transformations include:
-- Rotation
-- Reflection / flipping
-- Addition or removal of elements
-- Changes to shading or fill
-- Compound transformations (e.g., rotate then reflect)
+Common patterns:
+- Incremental count changes (one more dot, one fewer line per step)
+- Cyclic state changes (filled → half → empty → filled)
+- Positional advancement of a single element through fixed slots
+- Combined progressions across two independent properties (e.g., position and shading)
 
-Eliminating answers that violate one obvious property of the transformation (e.g., chirality preserved or not preserved) usually narrows the choices to two before any detailed analysis.
+The fastest approach is fixing one property and checking whether it advances by a constant amount across the given elements before testing the next property. Series that combine two progressions usually resolve once each is identified independently.
 
 ---
 
@@ -209,7 +208,7 @@ Lowest-leverage skills (despite being intuitive places to invest prep time):
 
 ## Sub-Type Inventory (for system reference)
 
-The 15 sub-types implemented in the practice system map to the categories above:
+The 14 sub-types implemented in the practice system map to the categories above:
 
 **Verbal (5):**
 - `verbal.synonyms`
@@ -225,11 +224,10 @@ The 15 sub-types implemented in the practice system map to the categories above:
 - `numerical.percentages`
 - `numerical.averages_ratios`
 
-**Abstract (5):**
+**Abstract (4):**
 - `abstract.odd_one_out`
 - `abstract.shape_series`
 - `abstract.matrix`
-- `abstract.transformations`
-- `abstract.rotation_reflection` (split out from transformations as a high-frequency sub-type)
+- `abstract.next_in_series`
 
 Each sub-type has its own item template, latency threshold, and strategy library entry.

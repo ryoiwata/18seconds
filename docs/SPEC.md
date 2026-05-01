@@ -33,7 +33,7 @@ src/
 ├── env.ts                                                     # MOD: add AUTH_SECRET, AUTH_GOOGLE_ID, AUTH_GOOGLE_SECRET, ANTHROPIC_API_KEY, OPENAI_API_KEY
 │
 ├── config/
-│   ├── sub-types.ts                                           # NEW: 15 sub-type entries (id, displayName, section, latencyThresholdMs)
+│   ├── sub-types.ts                                           # NEW: 14 sub-type entries (id, displayName, section, latencyThresholdMs)
 │   ├── strategies.ts                                          # NEW: Plain-text strategy notes keyed by sub-type id (PRD §6.4)
 │   ├── admins.ts                                              # NEW: Hardcoded admin email allowlist (PRD §3.1)
 │   └── item-templates.ts                                      # NEW: Per-sub-type structured prompt templates for the generator LLM (PRD §3.2)
@@ -419,7 +419,7 @@ const dbSchema = { ...authUsers, ...authAccounts, /* ... */ }
 
 ### 4.1 `src/config/sub-types.ts`
 
-Single source of truth for the 15 sub-types per PRD §2. Exports a `subTypes` array of:
+Single source of truth for the 14 sub-types per PRD §2. Exports a `subTypes` array of:
 
 ```ts
 interface SubTypeConfig {
@@ -430,7 +430,7 @@ interface SubTypeConfig {
 }
 ```
 
-The 15 entries (from PRD §2):
+The 14 entries (from PRD §2):
 
 ```
 verbal.synonyms             | "Synonyms"             | verbal     | latencyThresholdMs: 12000
@@ -446,11 +446,10 @@ numerical.averages_ratios   | "Averages & Ratios"    | numerical  | latencyThres
 abstract.odd_one_out        | "Odd One Out"          | abstract   | latencyThresholdMs: 15000
 abstract.shape_series       | "Shape Series"         | abstract   | latencyThresholdMs: 18000
 abstract.matrix             | "Matrix"               | abstract   | latencyThresholdMs: 18000
-abstract.transformations    | "Transformations"      | abstract   | latencyThresholdMs: 18000
 abstract.next_in_series     | "Next in Series"       | abstract   | latencyThresholdMs: 18000
 ```
 
-`SubTypeId` is a `as const` union of the 15 string ids. Initial latency thresholds set tighter than 18s per PRD §2; final values are an open question — see §13.
+`SubTypeId` is a `as const` union of the 14 string ids. Initial latency thresholds set tighter than 18s per PRD §2; final values are an open question — see §13.
 
 A migration in `src/db/scripts/seed-sub-types.ts` (NEW) populates the `sub_types` table from this file.
 
@@ -1126,7 +1125,7 @@ Per PRD §4.1. Fires once on first use (first login + no `mastery_state` rows fo
 1. `(app)/page.tsx` server component reads `mastery_state` rows for the user. If empty, redirects to `/diagnostic`.
 2. `/diagnostic/page.tsx` server component calls `startSession({ type: "diagnostic" })`. Skips the NarrowingRamp per PRD §5.3 ("Not used before the diagnostic").
 3. `/diagnostic/content.tsx` ("use client") renders `<FocusShell>` with `sessionDurationMs: 50 * 18000 = 900000`, `perQuestionTargetMs: 18000`. The first item is server-rendered.
-4. The shell drives `submitAttempt` for each of 50 items; sampling is proportional across the 15 sub-types and across difficulty tiers per PRD §4.1 (logic lives in `getNextItem` for `type === "diagnostic"`).
+4. The shell drives `submitAttempt` for each of 50 items; sampling is proportional across the 14 sub-types and across difficulty tiers per PRD §4.1 (logic lives in `getNextItem` for `type === "diagnostic"`).
 5. After the 50th submit returns `{ nextItem: undefined }`, the shell calls `endSession` and `router.push(\`/post-session/${sessionId}\`)`.
 6. `/post-session/[sessionId]/page.tsx` renders `<PostSessionReview>` (no strategy-review gate per PRD §6.5).
 7. After dismiss, route back to `/` which now shows the populated Mastery Map with a recommended first session.
@@ -1322,9 +1321,8 @@ The PRD does not specify the following. The implementer should make these decisi
 6. **Candidate-promotion thresholds** (PRD §3.2 step 6). After 20 attempts, what observed-accuracy/median-latency band promotes vs retires per difficulty tier?
 7. **Auth.js bigint adapter shim**. Whether the official `@auth/drizzle-adapter` accepts `bigint` columns directly (with `mode: "number"`) or whether the project needs a thin custom adapter wrapper. See §5.1.
 8. **Session-section ordering for `simulation`** (PRD §4.6). "Exact section ordering matching the real Criteria On-Demand Assessment platform" — needs a reference list of which sub-type appears at which question index.
-9. **15th abstract sub-type identifier**. PRD §2 lists `abstract.next_in_series`; `docs/CCAT-categories.md:233` lists `abstract.rotation_reflection`. PRD wins by precedence in this spec, but the discrepancy should be resolved in source.
-10. **Near-goal phrasing** (PRD §6.3). "Ahead / on-track / behind" wording is an open product-copy decision; §9.4 above gives one phrasing.
-11. **Triage shortcut keybinding** (PRD §6.1). "Pressing a configured shortcut" is mentioned but not specified. `Space` is a reasonable default; confirm.
-12. **Visibility persistence write cadence**. Per PRD §5.1 timer prefs persist across sessions. Whether to write on every toggle or debounce is unstated.
-13. **Candidate-promotion workflow trigger**. PRD §3.2 step 6 mentions it but does not say how it runs. A nightly cron via Vercel is the obvious choice; §8.6 above flags it as out of scope for v1.
-14. **Diagnostic question-bank composition**. PRD §4.1 says "samples items proportionally" — the exact split (50 ÷ 15 = 3.33 per sub-type) needs a deterministic rounding rule.
+9. **Near-goal phrasing** (PRD §6.3). "Ahead / on-track / behind" wording is an open product-copy decision; §9.4 above gives one phrasing.
+10. **Triage shortcut keybinding** (PRD §6.1). "Pressing a configured shortcut" is mentioned but not specified. `Space` is a reasonable default; confirm.
+11. **Visibility persistence write cadence**. Per PRD §5.1 timer prefs persist across sessions. Whether to write on every toggle or debounce is unstated.
+12. **Candidate-promotion workflow trigger**. PRD §3.2 step 6 mentions it but does not say how it runs. A nightly cron via Vercel is the obvious choice; §8.6 above flags it as out of scope for v1.
+13. **Diagnostic question-bank composition**. PRD §4.1 says "samples items proportionally" — the exact split (50 ÷ 14 ≈ 3.57 per sub-type) needs a deterministic rounding rule.
