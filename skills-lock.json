@@ -79,6 +79,12 @@
       "skillPath": ".agents/skills/harden/SKILL.md",
       "computedHash": "f8ce420b3c78b90707704122264da76514c793ac0e12fb9540ace68d257c231c"
     },
+    "nextjs": {
+      "source": "vercel-labs/vercel-plugin",
+      "sourceType": "github",
+      "skillPath": "skills/nextjs/SKILL.md",
+      "computedHash": "d3a48eada4dbae95856d643a0c9c54a38974ee7896a4d34f93aead13d26c343a"
+    },
     "normalize": {
       "source": "PSkinnerTech/alpha-style",
       "sourceType": "github",
