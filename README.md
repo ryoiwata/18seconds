@@ -66,6 +66,46 @@ The philosophy of this starter is simple: **prevent entire classes of bugs at th
 
 Your application should now be running at `http://localhost:3000`.
 
+### Local Postgres via Docker
+
+For week-1 schema iteration the recommended path is a local `pgvector/pgvector:pg16` container — same major version, same extensions, same default collation as the IaC RDS spec. AWS RDS provisioning isn't required during this phase.
+
+1. **Start the container:**
+    ```bash
+    docker compose up -d
+    ```
+    Pinned to `pgvector/pgvector:pg16` in `docker-compose.yml`. Data persists in the named `18seconds_pgdata` volume across restarts. If you already have something on `localhost:5432`, stop that first or remap the host port in `docker-compose.yml`.
+
+2. **Set `DATABASE_LOCAL_URL` in `.env`:**
+    ```dotenv
+    DATABASE_LOCAL_URL=postgresql://postgres:postgres@localhost:5432/postgres
+    ```
+    With this set, `src/db/index.ts`, `src/db/admin.ts`, and `src/db/scripts/drizzle-kit-shim.ts` skip the AWS RDS Signer + Secrets Manager path and use a plain pg connection. `AWS_ROLE_ARN`, `DATABASE_HOST`, and `DATABASE_ADMIN_SECRET_ARN` can stay empty in this mode. `db:push:programs` also skips the `GRANT rds_iam` line (vanilla Postgres has no `rds_iam` role).
+
+    `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and `CRON_SECRET` are still required by env validation. Placeholder values for the LLM keys (`sk-ant-placeholder`, `sk-placeholder`) are fine until Phase 4.
+
+3. **Apply programs, migrations, and seeds:**
+    ```bash
+    bun db:push:programs    # creates the `app` user, installs pgcrypto + pgvector
+    bun db:migrate          # applies drizzle/0000_*.sql
+    bun db:seed             # inserts 11 sub_types and 33 strategies
+    ```
+
+4. **Run the dev server:**
+    ```bash
+    bun dev
+    ```
+
+To wipe the local database completely:
+
+```bash
+docker compose down -v
+```
+
+This removes the `18seconds_pgdata` volume; the next `docker compose up -d` starts fresh.
+
+To switch back to AWS RDS, comment out (or unset) `DATABASE_LOCAL_URL` and provide `AWS_ROLE_ARN` / `DATABASE_HOST` / `DATABASE_ADMIN_SECRET_ARN`. No code changes required.
+
 ## The Superbuilder Ruleset: Enforced Best Practices
 
 This starter isn't just a collection of technologies; it's a prescriptive framework for writing high-quality code. The Superbuilder Ruleset is a set of development patterns enforced by Biome and our custom GritQL rules. These rules are not mere suggestions—they are compiled into the linter and will cause build errors if violated.
