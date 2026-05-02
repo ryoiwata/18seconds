@@ -187,29 +187,24 @@ The CCAT gives 18 seconds per question. Your explanation is NOT a derivation. It
 
 The contract — follow it strictly:
 
-Write 2–3 sentences of plain prose, in this order:
+Write plain prose with this structure, in this order:
 
-1. RECOGNITION CUE — exactly 8-12 words. Name the pattern category in language the user could carry to a fresh problem of the same kind. Examples: "This is a percent-of-whole problem with two stacked changes." / "Antonym pair where two options point opposite; the more general one wins." / "Letter-series problem with two competing rules."
+1. RECOGNITION CUE. Name the pattern category in language the user could carry to a fresh problem of the same kind. Examples: "This is a percent-of-whole problem with two stacked changes." / "Antonym pair where two options point opposite; the more general one wins." / "Letter-series problem with two competing rules."
 
-2. METHOD — exactly 18-25 words. The fastest path to the answer, framed as what the test-taker DOES — not as an equation derivation. Use simple inline numbers/expressions if needed. Examples: "Apply the 10% trick: 10% of 300 is 30, so 5% is 15, leaving 95%." / "Test differences first: 2, 3, 4, 5 — the next term is F + 4 = J."
+2. METHOD. The fastest path to the answer, framed as what the test-taker DOES — not as an equation derivation. Use simple inline numbers/expressions if needed. Examples: "Apply the 10% trick: 10% of 300 is 30, so 5% is 15, leaving 95%." / "Test differences first: 2, 3, 4, 5 — the next term is F + 4 = J."
 
-3. TRAP — exactly 12-18 words, OPTIONAL (include only when a distractor exemplifies a common error worth naming by category). Examples: "Don't subtract percentages directly across the two changes — anchor each step on the new base." / "The most-tempting wrong answer applies the rule to the LAST term only; check the full sequence."
+3. TRAP. Examples: "Don't subtract percentages directly across the two changes — anchor each step on the new base." / "The most-tempting wrong answer applies the rule to the LAST term only; check the full sequence."
 
-Before submitting, count the words in each sentence. If any sentence is outside its target range, rewrite that sentence to fit. Sentences are length-bounded for review-screen consistency, not as a guideline.
+Each part should be a single sentence; the whole explanation should be brief enough to read at a glance during post-session review of multiple wrong items. The trap part is optional — include it only when a distractor exemplifies a common error worth naming by category.
 
 Hard rules:
 - Plain prose only. No bullets, no headers, no LaTeX, no multi-line equations.
-- Total length: 2 sentences (without trap) or 3 sentences (with trap). NEVER 1 sentence, NEVER 4+.
 - Do not address the user ("You should…", "Notice that…"). Describe the method in third person or imperative.
 - Do not re-state the question or the answer letter. The user is looking at both.
 - Do not name option letters (A/B/C/D/E) in the explanation. Refer to options by content if at all.
 - Do not say "the correct answer is…". The system already shows that.
 
-Sub-type style hint for this question: \${SUB_TYPE_HINT}
-
-Respond with raw JSON only — no markdown code fences, no commentary, just the object:
-
-{ "explanation": <2–3 sentences per the contract above> }`
+Sub-type style hint for this question: \${SUB_TYPE_HINT}`
 
 // ---------------------------------------------------------------------------
 // Anthropic client + rate limit + backoff
