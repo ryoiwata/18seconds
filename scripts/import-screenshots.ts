@@ -133,9 +133,19 @@ const verifierOutput = z
 
 type VerifierOutput = z.infer<typeof verifierOutput>
 
-const unifiedExplanationOutput = z.object({
-	explanation: z.string().min(1)
+const structuredExplanationOutput = z.object({
+	parts: z
+		.array(
+			z.object({
+				kind: z.enum(["recognition", "elimination", "tie-breaker"]),
+				text: z.string().min(1),
+				referencedOptions: z.array(z.enum(["A", "B", "C", "D", "E"]))
+			})
+		)
+		.length(3)
 })
+
+type StructuredExplanationOutput = z.infer<typeof structuredExplanationOutput>
 
 // ---------------------------------------------------------------------------
 // Prompts
@@ -181,28 +191,37 @@ Your protocol:
 
 Call the submit_verifier_judgment tool with your verdict.`
 
-const EXPLAIN_SYSTEM_TEMPLATE = `You are writing a post-session-review explanation for a CCAT (Criteria Cognitive Aptitude Test) multiple-choice question. The user has already attempted the question; they are now reviewing what they got wrong (or got slowly). Your explanation is what they read.
+const EXPLAIN_SYSTEM_TEMPLATE = `You are writing a post-session-review explanation for a CCAT (Criteria Cognitive Aptitude Test) multiple-choice question. The user has already attempted the question; they are now reviewing items they got wrong (or got slowly).
 
-The CCAT gives 18 seconds per question. Your explanation is NOT a derivation. It is a compressed pattern lesson the user can carry to the next item of the same kind.
+Your explanation models the internal monologue of a fast test-taker working through this problem in 15 seconds — recognize, eliminate, decide. The CCAT gives 18 seconds per question; the user does not have time for a derivation. They need three decision moves they can use on the next problem of the same kind.
 
-The contract — follow it strictly:
+Call the submit_structured_explanation tool with exactly three parts in this order:
 
-Write plain prose with this structure, in this order:
+1. RECOGNITION — Name the pattern type AND the first move a fast solver makes. Examples:
+   - "Double-blank sentence-completion problem; solve the conjunction-locked blank first."
+   - "Antonym problem; sort options by relationship-to-target before reading meanings."
+   - "Multi-letter group letter series; convert each position to its number track separately."
+   referencedOptions: usually empty, since recognition names the pattern, not specific options. Include an option only if the recognition itself depends on a specific option's content.
 
-1. RECOGNITION CUE. Name the pattern category in language the user could carry to a fresh problem of the same kind. Examples: "This is a percent-of-whole problem with two stacked changes." / "Antonym pair where two options point opposite; the more general one wins." / "Letter-series problem with two competing rules."
+2. ELIMINATION — A scan-and-cut rule that gets the user from 5 options to 2 in seconds. NOT a derivation. Examples:
+   - "Cross out any option whose adjective and noun feel interchangeable — analogies require directional relationships."
+   - "Eliminate options describing substitution or movement; the answer must reverse acquisition itself, so 'replace' and 'pass' both go."
+   referencedOptions: list the option ids your elimination rule cuts. If the rule cuts 'replace' and 'pass', return the ids of those options (not the words — look up the ids from the options array).
 
-2. METHOD. The fastest path to the answer, framed as what the test-taker DOES — not as an equation derivation. Use simple inline numbers/expressions if needed. Examples: "Apply the 10% trick: 10% of 300 is 30, so 5% is 15, leaving 95%." / "Test differences first: 2, 3, 4, 5 — the next term is F + 4 = J."
-
-3. TRAP. Examples: "Don't subtract percentages directly across the two changes — anchor each step on the new base." / "The most-tempting wrong answer applies the rule to the LAST term only; check the full sequence."
-
-Each part should be a single sentence; the whole explanation should be brief enough to read at a glance during post-session review of multiple wrong items. The trap part is optional — include it only when a distractor exemplifies a common error worth naming by category.
+3. TIE-BREAKER — The rule for picking between the final two options once eliminations are done. Often what would otherwise be framed as a "trap warning," reframed as a deciding move. Examples:
+   - "Between the remaining two, prefer 'sell' over 'pass' — antonyms reward reversing the core action, not naming a transfer."
+   - "Pick the first-word option that causally explains the effect; 'lengthy' causes drowsiness, while 'rambling' merely describes a quality."
+   referencedOptions: list the two option ids the tie-breaker is choosing between.
 
 Hard rules:
-- Plain prose only. No bullets, no headers, no LaTeX, no multi-line equations.
-- Do not address the user ("You should…", "Notice that…"). Describe the method in third person or imperative.
-- Do not re-state the question or the answer letter. The user is looking at both.
-- Do not name option letters (A/B/C/D/E) in the explanation. Refer to options by content if at all.
-- Do not say "the correct answer is…". The system already shows that.
+- When referring to an answer choice in the text, quote its text exactly (e.g., 'sell' or 'engaging') rather than paraphrasing. Do not invent paraphrases like "the transfer-flavored option."
+- The text of each part teaches a *triage move*, not a derivation. If a part walks step-by-step through arithmetic or restates premises, it's failing the contract.
+- Each part's text is one sentence, or two if the move genuinely has parallel sub-steps (e.g., a double-blank where each blank needs a rule).
+- referencedOptions contains option ids ("A", "B", "C", "D", or "E") — never option text. The script will look up the text by id.
+- referencedOptions for a part lists every option whose content is *named* in that part's text. If you write "eliminate 'replace' and 'pass,'" both options' ids must be in referencedOptions.
+- Do not address the user ("you should…", "notice that…"). Describe the moves in third person or imperative.
+- Do not restate the question. Do not name the correct answer letter (the system displays it).
+- No bullets, no headers, no LaTeX, no multi-line equations. Plain prose inside each part's text.
 
 Sub-type style hint for this question: \${SUB_TYPE_HINT}`
 
@@ -571,30 +590,52 @@ async function verifyAnswer(
 }
 
 // Explain tool. Earlier rationale for skipping the explain migration —
-// "single-string outputs don't have a JSON-validity surface for commentary to
-// leak into" — was wrong. The JSON wrapper IS the surface; q21 hit the same
-// prose-preamble pattern. Tool-use eliminates it by construction.
-const EXPLAIN_TOOL_NAME = "submit_unified_explanation"
+// Explain tool. Returns three structured parts (recognition, elimination,
+// tie-breaker) per the structured-explanation contract. The script renders
+// prose deterministically from the parts via renderExplanationProse — prose
+// is a projection of structure, not a separate field, so prose can never
+// drift from the structured form. The structured form lives in
+// metadata_json.structuredExplanation for future click-to-highlight readers.
+const EXPLAIN_TOOL_NAME = "submit_structured_explanation"
 const EXPLAIN_TOOL: Anthropic.Messages.Tool = {
 	name: EXPLAIN_TOOL_NAME,
 	description:
-		"Submit the unified post-session-review explanation as plain prose, following the contract in the system prompt.",
+		"Submit the post-session-review explanation as exactly three structured parts in fixed order: recognition, elimination, tie-breaker. Each part's text teaches a triage move; referencedOptions lists the option ids whose content the text names.",
 	input_schema: {
 		type: "object",
 		properties: {
-			explanation: { type: "string" }
+			parts: {
+				type: "array",
+				minItems: 3,
+				maxItems: 3,
+				items: {
+					type: "object",
+					properties: {
+						kind: {
+							type: "string",
+							enum: ["recognition", "elimination", "tie-breaker"]
+						},
+						text: { type: "string" },
+						referencedOptions: {
+							type: "array",
+							items: { type: "string", enum: ["A", "B", "C", "D", "E"] }
+						}
+					},
+					required: ["kind", "text", "referencedOptions"]
+				}
+			}
 		},
-		required: ["explanation"]
+		required: ["parts"]
 	}
 }
 
-async function writeUnifiedExplanation(
+async function writeStructuredExplanation(
 	question: string,
 	options: { id: string; text: string }[],
 	correctAnswer: string,
 	subTypeId: SubTypeId,
 	originalExplanation: string | undefined
-): Promise<string> {
+): Promise<StructuredExplanationOutput> {
 	const hint = subTypeStyleHints[subTypeId]
 	const system = EXPLAIN_SYSTEM_TEMPLATE.replace("${SUB_TYPE_HINT}", hint)
 
@@ -633,11 +674,19 @@ async function writeUnifiedExplanation(
 		throw new Error(`no ${EXPLAIN_TOOL_NAME} tool_use block in explain response`)
 	}
 
-	const parsed = unifiedExplanationOutput.safeParse(toolInput)
+	const parsed = structuredExplanationOutput.safeParse(toolInput)
 	if (!parsed.success) {
 		throw new Error(`explanation Zod validation failed: ${JSON.stringify(parsed.error.issues)}`)
 	}
-	return parsed.data.explanation
+	return parsed.data
+}
+
+// Deterministic prose rendering: prose is a projection of structure so the
+// stored items.explanation can never drift from items.metadata_json.
+// structuredExplanation. Single space between parts, no separators — reads
+// as flowing prose.
+function renderExplanationProse(structured: StructuredExplanationOutput): string {
+	return structured.parts.map((p) => p.text).join(" ")
 }
 
 interface IngestPayload {
@@ -650,6 +699,7 @@ interface IngestPayload {
 	metadata: {
 		importSource: "ocr-visible" | "ocr-solved"
 		originalExplanation?: string
+		structuredExplanation?: StructuredExplanationOutput
 	}
 }
 
@@ -1058,9 +1108,9 @@ async function processImage(
 	}
 
 	console.log("  [explain]")
-	let explanation: string
+	let structured: StructuredExplanationOutput
 	try {
-		explanation = await writeUnifiedExplanation(
+		structured = await writeStructuredExplanation(
 			data.question,
 			data.options,
 			correctAnswer,
@@ -1082,15 +1132,28 @@ async function processImage(
 		}
 		return
 	}
-	console.log("  [unified explanation]")
-	console.log(`    ${explanation}`)
-	if (args.dryRun && data.originalExplanation) {
-		console.log("  [original explanation — for side-by-side comparison]")
-		const indented = data.originalExplanation
+	const explanation = renderExplanationProse(structured)
+
+	if (args.dryRun) {
+		console.log("  [structured explanation]")
+		const prettyStructured = JSON.stringify(structured, null, 2)
 			.split("\n")
 			.map((l) => `    ${l}`)
 			.join("\n")
-		console.log(indented)
+		console.log(prettyStructured)
+		console.log("  [rendered prose]")
+		console.log(`    ${explanation}`)
+		if (data.originalExplanation) {
+			console.log("  [original explanation — for side-by-side comparison]")
+			const indented = data.originalExplanation
+				.split("\n")
+				.map((l) => `    ${l}`)
+				.join("\n")
+			console.log(indented)
+		}
+	} else {
+		console.log("  [rendered prose]")
+		console.log(`    ${explanation}`)
 	}
 
 	if (args.dryRun) {
@@ -1114,6 +1177,7 @@ async function processImage(
 		explanation,
 		metadata: {
 			importSource,
+			structuredExplanation: structured,
 			...(data.originalExplanation ? { originalExplanation: data.originalExplanation } : {})
 		}
 	}
