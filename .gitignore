@@ -42,6 +42,9 @@ yarn-error.log*
 # workflow (auto-generated routes)
 src/app/.well-known/workflow/
 
+# local docker compose override (machine-specific port remaps, etc.)
+docker-compose.override.yml
+
 # typescript
 *.tsbuildinfo
 
