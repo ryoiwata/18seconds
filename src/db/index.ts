@@ -10,6 +10,12 @@ import { type Db, dbSchema } from "@/db/schema"
 import { env } from "@/env"
 import { logger } from "@/logger"
 
+declare global {
+	// Cached across Turbopack hot-reload module re-evaluation; harmless in production
+	// since the server isn't hot-reloaded there.
+	var __18seconds_pg_pool: Pool | undefined
+}
+
 function createLocalPool(connectionString: string): Pool {
 	logger.info("creating local docker pg pool")
 	return new Pool({
@@ -61,11 +67,20 @@ function createRdsPool(): Pool {
 	})
 }
 
-const pool = env.DATABASE_LOCAL_URL ? createLocalPool(env.DATABASE_LOCAL_URL) : createRdsPool()
-
-if (!env.DATABASE_LOCAL_URL) {
-	attachDatabasePool(pool)
+function getOrCreatePool(): Pool {
+	const cached = globalThis.__18seconds_pg_pool
+	if (cached) {
+		return cached
+	}
+	const created = env.DATABASE_LOCAL_URL ? createLocalPool(env.DATABASE_LOCAL_URL) : createRdsPool()
+	globalThis.__18seconds_pg_pool = created
+	if (!env.DATABASE_LOCAL_URL) {
+		attachDatabasePool(created)
+	}
+	return created
 }
+
+const pool = getOrCreatePool()
 
 const db: Db = drizzle({ client: pool, schema: dbSchema })
 
