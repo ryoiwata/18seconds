@@ -11,8 +11,8 @@ The substantive design from the previous draft — the unified-explanation contr
 
 The known input formats living in `data/testbank/` are:
 
-- `data/testbank/12min_prep_practice_1/` — 34 PNGs, ~1326 × 508, one question per image, **answer + explanation visible** in most.
-- `data/testbank/gauntlet_ccat_practice_1/` — 32 PNGs, ~1330 × 800, one question per image, **answer not visible** in most (need solve + verify).
+- `data/testbank/12min_prep_practice_1/` — 34 PNGs, one question per image, **answer + explanation visible** in most.
+- `data/testbank/gauntlet_ccat_practice_1/` — 32 PNGs, one question per image, **answer not visible** in most (need solve + verify).
 
 Future drops will live as additional sibling directories under `data/testbank/`. `data/testbank/` is in `.gitignore`, so screenshots never land in the repo.
 
