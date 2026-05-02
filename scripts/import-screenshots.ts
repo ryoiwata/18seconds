@@ -13,6 +13,7 @@
 // canonical 5-image cross-source dry-run).
 
 import Anthropic from "@anthropic-ai/sdk"
+import { Buffer } from "node:buffer"
 import { createHash } from "node:crypto"
 import * as fs from "node:fs"
 import * as path from "node:path"
@@ -27,6 +28,11 @@ const EXTRACT_MODEL = "claude-sonnet-4-6"
 const SOLVE_MODEL = "claude-sonnet-4-6"
 const VERIFY_MODEL = "claude-sonnet-4-6"
 const EXPLAIN_MODEL = "claude-sonnet-4-6"
+
+const EXTRACT_MAX_TOKENS = 1024
+const SOLVE_MAX_TOKENS = 512
+const VERIFY_MAX_TOKENS = 512
+const EXPLAIN_MAX_TOKENS = 512
 
 // ---------------------------------------------------------------------------
 // Sub-type style hints (one entry per v1 sub-type, drafted from
@@ -228,7 +234,86 @@ Respond with raw JSON only — no markdown code fences, no commentary, just the 
 { "explanation": <2–3 sentences per the contract above> }`
 
 // ---------------------------------------------------------------------------
-// Stub pipeline functions (filled in Step 6)
+// Anthropic client + rate limit + backoff
+// ---------------------------------------------------------------------------
+
+const anthropicKey = Bun.env.ANTHROPIC_API_KEY
+if (!anthropicKey) {
+	console.error("ANTHROPIC_API_KEY is missing from .env")
+	process.exit(1)
+}
+const cronSecret = Bun.env.CRON_SECRET
+if (!cronSecret) {
+	console.error("CRON_SECRET is missing from .env")
+	process.exit(1)
+}
+
+const client = new Anthropic({ apiKey: anthropicKey })
+
+const MIN_REQUEST_INTERVAL_MS = 1000
+let lastRequestStartMs = 0
+
+async function throttle(): Promise<void> {
+	const now = Date.now()
+	const elapsed = now - lastRequestStartMs
+	if (elapsed < MIN_REQUEST_INTERVAL_MS) {
+		await Bun.sleep(MIN_REQUEST_INTERVAL_MS - elapsed)
+	}
+	lastRequestStartMs = Date.now()
+}
+
+const BACKOFF_DELAYS_MS = [1000, 2000, 4000]
+
+async function withBackoff<T>(label: string, fn: () => Promise<T>): Promise<T> {
+	let lastErr: unknown
+	for (let attempt = 0; attempt <= BACKOFF_DELAYS_MS.length; attempt++) {
+		try {
+			await throttle()
+			return await fn()
+		} catch (err) {
+			lastErr = err
+			const is429 = err instanceof Anthropic.APIError && err.status === 429
+			if (is429 && attempt < BACKOFF_DELAYS_MS.length) {
+				const delay = BACKOFF_DELAYS_MS[attempt] ?? 4000
+				console.warn(`[rate-limit] ${label} 429, retry ${attempt + 1}/${BACKOFF_DELAYS_MS.length} in ${delay}ms`)
+				await Bun.sleep(delay)
+				continue
+			}
+			throw err
+		}
+	}
+	throw lastErr
+}
+
+// ---------------------------------------------------------------------------
+// Fence stripping (mirrors src/server/items/tagger.ts)
+// ---------------------------------------------------------------------------
+
+const CODE_FENCE_REGEX = /^\s*```(?:json)?\s*\n?([\s\S]*?)\n?```\s*$/
+
+function stripCodeFences(raw: string): string {
+	const match = raw.match(CODE_FENCE_REGEX)
+	if (match) {
+		const captured = match[1]
+		if (captured !== undefined) return captured.trim()
+	}
+	return raw.trim()
+}
+
+function extractTextBlock(content: Anthropic.ContentBlock[]): string | undefined {
+	for (const block of content) {
+		if (block.type === "text") return block.text
+	}
+	return undefined
+}
+
+function errorToString(err: unknown): string {
+	if (err instanceof Error) return err.message
+	return String(err)
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline functions
 // ---------------------------------------------------------------------------
 
 interface ExtractResult {
@@ -243,33 +328,188 @@ interface ExtractFailure {
 	error: string
 }
 
-async function extractFromImage(_imagePath: string): Promise<ExtractResult | ExtractFailure> {
-	throw new Error("not implemented")
+async function extractFromImage(imagePath: string): Promise<ExtractResult | ExtractFailure> {
+	const buf = await Bun.file(imagePath).arrayBuffer()
+	const b64 = Buffer.from(buf).toString("base64")
+
+	const system = EXTRACT_SYSTEM_TEMPLATE.replace("${SUB_TYPE_LIST}", buildSubTypeList())
+
+	let message: Anthropic.Messages.Message
+	try {
+		message = await withBackoff(`extract:${path.basename(imagePath)}`, () =>
+			client.messages.create({
+				model: EXTRACT_MODEL,
+				max_tokens: EXTRACT_MAX_TOKENS,
+				temperature: 0,
+				system,
+				messages: [
+					{
+						role: "user",
+						content: [
+							{
+								type: "image",
+								source: { type: "base64", media_type: "image/png", data: b64 }
+							},
+							{ type: "text", text: "Extract this CCAT question." }
+						]
+					}
+				]
+			})
+		)
+	} catch (err) {
+		return { ok: false, stage: "extract", rawOutput: "", error: errorToString(err) }
+	}
+
+	const text = extractTextBlock(message.content)
+	if (!text) {
+		return {
+			ok: false,
+			stage: "extract",
+			rawOutput: "",
+			error: "no text block in extract response"
+		}
+	}
+
+	const stripped = stripCodeFences(text)
+	let json: unknown
+	try {
+		json = JSON.parse(stripped)
+	} catch (err) {
+		return {
+			ok: false,
+			stage: "extract",
+			rawOutput: text,
+			error: `JSON parse failed: ${errorToString(err)}`
+		}
+	}
+
+	const parsed = extractedItem.safeParse(json)
+	if (!parsed.success) {
+		return {
+			ok: false,
+			stage: "extract",
+			rawOutput: text,
+			error: `Zod validation failed: ${JSON.stringify(parsed.error.issues)}`
+		}
+	}
+
+	return { ok: true, data: parsed.data, rawOutput: text }
+}
+
+function formatOptionsBlock(options: { id: string; text: string }[]): string {
+	return options.map((o) => `${o.id}. ${o.text}`).join("\n")
 }
 
 async function solveQuestion(
-	_question: string,
-	_options: { id: string; text: string }[]
+	question: string,
+	options: { id: string; text: string }[]
 ): Promise<SolverOutput> {
-	throw new Error("not implemented")
+	const userContent = `Question:\n${question}\n\nOptions:\n${formatOptionsBlock(options)}`
+
+	const message = await withBackoff("solve", () =>
+		client.messages.create({
+			model: SOLVE_MODEL,
+			max_tokens: SOLVE_MAX_TOKENS,
+			temperature: 0,
+			system: SOLVE_SYSTEM,
+			messages: [{ role: "user", content: userContent }]
+		})
+	)
+
+	const text = extractTextBlock(message.content)
+	if (!text) throw new Error("no text block in solve response")
+
+	const stripped = stripCodeFences(text)
+	const json = JSON.parse(stripped)
+	const parsed = solverOutput.safeParse(json)
+	if (!parsed.success) {
+		throw new Error(`solver Zod validation failed: ${JSON.stringify(parsed.error.issues)}`)
+	}
+	return parsed.data
 }
 
 async function verifyAnswer(
-	_question: string,
-	_options: { id: string; text: string }[],
-	_claim: SolverOutput
+	question: string,
+	options: { id: string; text: string }[],
+	claim: SolverOutput
 ): Promise<VerifierOutput> {
-	throw new Error("not implemented")
+	// Fresh conversation: brand-new messages array, NOT chained from solve. The
+	// SDK call is structurally separate.
+	const userContent = [
+		"Question:",
+		question,
+		"",
+		"Options:",
+		formatOptionsBlock(options),
+		"",
+		`Claimed answer: ${claim.correctAnswer}`,
+		`Claimed reasoning: ${claim.reasoning}`
+	].join("\n")
+
+	const message = await withBackoff("verify", () =>
+		client.messages.create({
+			model: VERIFY_MODEL,
+			max_tokens: VERIFY_MAX_TOKENS,
+			temperature: 0,
+			system: VERIFY_SYSTEM,
+			messages: [{ role: "user", content: userContent }]
+		})
+	)
+
+	const text = extractTextBlock(message.content)
+	if (!text) throw new Error("no text block in verify response")
+
+	const stripped = stripCodeFences(text)
+	const json = JSON.parse(stripped)
+	const parsed = verifierOutput.safeParse(json)
+	if (!parsed.success) {
+		throw new Error(`verifier Zod validation failed: ${JSON.stringify(parsed.error.issues)}`)
+	}
+	return parsed.data
 }
 
 async function writeUnifiedExplanation(
-	_question: string,
-	_options: { id: string; text: string }[],
-	_correctAnswer: string,
-	_subTypeId: SubTypeId,
-	_originalExplanation: string | undefined
+	question: string,
+	options: { id: string; text: string }[],
+	correctAnswer: string,
+	subTypeId: SubTypeId,
+	originalExplanation: string | undefined
 ): Promise<string> {
-	throw new Error("not implemented")
+	const hint = subTypeStyleHints[subTypeId]
+	const system = EXPLAIN_SYSTEM_TEMPLATE.replace("${SUB_TYPE_HINT}", hint)
+
+	const userContent = [
+		"Question:",
+		question,
+		"",
+		"Options:",
+		formatOptionsBlock(options),
+		"",
+		`Correct answer: ${correctAnswer}`,
+		"",
+		`Source explanation (background context only — write a fresh explanation, do not paraphrase): ${originalExplanation ?? "(none)"}`
+	].join("\n")
+
+	const message = await withBackoff("explain", () =>
+		client.messages.create({
+			model: EXPLAIN_MODEL,
+			max_tokens: EXPLAIN_MAX_TOKENS,
+			temperature: 0,
+			system,
+			messages: [{ role: "user", content: userContent }]
+		})
+	)
+
+	const text = extractTextBlock(message.content)
+	if (!text) throw new Error("no text block in explain response")
+
+	const stripped = stripCodeFences(text)
+	const json = JSON.parse(stripped)
+	const parsed = unifiedExplanationOutput.safeParse(json)
+	if (!parsed.success) {
+		throw new Error(`explanation Zod validation failed: ${JSON.stringify(parsed.error.issues)}`)
+	}
+	return parsed.data.explanation
 }
 
 interface IngestPayload {
@@ -285,12 +525,108 @@ interface IngestPayload {
 	}
 }
 
-async function postToIngest(_payload: IngestPayload): Promise<{ status: number; body: string }> {
-	throw new Error("not implemented")
+async function postToIngest(payload: IngestPayload): Promise<{ status: number; body: string }> {
+	await throttle()
+	const res = await fetch("http://localhost:3000/api/admin/ingest-item", {
+		method: "POST",
+		headers: {
+			Authorization: `Bearer ${cronSecret}`,
+			"Content-Type": "application/json"
+		},
+		body: JSON.stringify(payload)
+	})
+	const body = await res.text()
+	return { status: res.status, body }
 }
 
 // ---------------------------------------------------------------------------
-// CLI parsing + main
+// Logging (one JSON object per line, append-only)
+// ---------------------------------------------------------------------------
+
+const LOGS_DIR = path.resolve(import.meta.dir, "_logs")
+const IMPORTED_LOG = path.join(LOGS_DIR, "imported.jsonl")
+const SKIPPED_LOG = path.join(LOGS_DIR, "skipped.jsonl")
+const EXTRACT_FAILURES_LOG = path.join(LOGS_DIR, "extract-failures.jsonl")
+const EXPLANATION_FAILURES_LOG = path.join(LOGS_DIR, "explanation-failures.jsonl")
+const NEEDS_REVIEW_LOG = path.join(LOGS_DIR, "needs-review.jsonl")
+const INGEST_FAILURES_LOG = path.join(LOGS_DIR, "ingest-failures.jsonl")
+
+function appendJsonl(file: string, obj: unknown): void {
+	fs.appendFileSync(file, `${JSON.stringify(obj)}\n`)
+}
+
+function loadImportedHashes(): Set<string> {
+	const hashes = new Set<string>()
+	if (!fs.existsSync(IMPORTED_LOG)) return hashes
+	const content = fs.readFileSync(IMPORTED_LOG, "utf8")
+	for (const line of content.split("\n")) {
+		const trimmed = line.trim()
+		if (!trimmed) continue
+		try {
+			const parsed = JSON.parse(trimmed)
+			if (typeof parsed.hash === "string") hashes.add(parsed.hash)
+		} catch {
+			// Skip malformed lines silently — log file shouldn't have them but better
+			// than crashing on a corrupted line.
+		}
+	}
+	return hashes
+}
+
+function nowIso(): string {
+	return new Date().toISOString()
+}
+
+// ---------------------------------------------------------------------------
+// File walking + deterministic sampling
+// ---------------------------------------------------------------------------
+
+const SAMPLE_SEED = "18seconds-ocr-sample-v1"
+
+function listPngsTopLevel(dir: string): string[] {
+	const out: string[] = []
+	for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+		if (entry.isFile() && entry.name.toLowerCase().endsWith(".png")) {
+			out.push(path.join(dir, entry.name))
+		}
+	}
+	out.sort()
+	return out
+}
+
+function listPngsRecursive(dir: string): string[] {
+	const out: string[] = []
+	function walk(current: string): void {
+		for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+			const full = path.join(current, entry.name)
+			if (entry.isDirectory()) {
+				walk(full)
+			} else if (entry.isFile() && entry.name.toLowerCase().endsWith(".png")) {
+				out.push(full)
+			}
+		}
+	}
+	walk(dir)
+	out.sort()
+	return out
+}
+
+function deterministicSample(files: string[], count: number): string[] {
+	const hashed = files.map((file) => ({
+		file,
+		hash: createHash("sha256").update(`${SAMPLE_SEED}|${file}`).digest("hex")
+	}))
+	hashed.sort((a, b) => (a.hash < b.hash ? -1 : a.hash > b.hash ? 1 : 0))
+	return hashed.slice(0, count).map((h) => h.file)
+}
+
+function sha256File(filePath: string): string {
+	const buf = fs.readFileSync(filePath)
+	return createHash("sha256").update(buf).digest("hex")
+}
+
+// ---------------------------------------------------------------------------
+// CLI parsing + main loop
 // ---------------------------------------------------------------------------
 
 interface CliArgs {
@@ -311,7 +647,7 @@ Flags:
   --dry-run       Extract (and solve/verify/explain if needed) but do not POST. Logs to stdout.
   --limit N       Stop after processing N images.
   --sample        Recursively sample N images deterministically from across <inbox-dir>.
-                  Use with --limit to control the sample size.
+                  REQUIRES --limit to specify the sample size (no implicit "everything").
   --skip-solve    For images where the answer is not visible, log to skipped and continue
                   instead of running solve+verify.
   --help, -h      Print this usage message and exit.
@@ -369,6 +705,11 @@ function parseArgs(argv: string[]): CliArgs | { help: true } {
 		process.exit(1)
 	}
 
+	if (sample && limit === undefined) {
+		console.error("--sample requires --limit (the deterministic sample size must be explicit)")
+		process.exit(1)
+	}
+
 	const resolved = path.resolve(inboxDir)
 	if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
 		console.error(`inbox-dir does not exist or is not a directory: ${resolved}`)
@@ -378,40 +719,390 @@ function parseArgs(argv: string[]): CliArgs | { help: true } {
 	return { inboxDir: resolved, dryRun, limit, sample, skipSolve }
 }
 
+interface Counters {
+	totalFiles: number
+	alreadyImported: number
+	skippedVisual: number
+	skippedNoSolve: number
+	extractFailures: number
+	explanationFailures: number
+	ingestFailures: number
+	needsReview: number
+	successOcrVisible: number
+	successOcrSolved: number
+	successWithOriginal: number
+	successWithoutOriginal: number
+}
+
+function newCounters(totalFiles: number): Counters {
+	return {
+		totalFiles,
+		alreadyImported: 0,
+		skippedVisual: 0,
+		skippedNoSolve: 0,
+		extractFailures: 0,
+		explanationFailures: 0,
+		ingestFailures: 0,
+		needsReview: 0,
+		successOcrVisible: 0,
+		successOcrSolved: 0,
+		successWithOriginal: 0,
+		successWithoutOriginal: 0
+	}
+}
+
+function pad(value: string | number, width: number): string {
+	return String(value).padStart(width, " ")
+}
+
+function printSummary(c: Counters): void {
+	const success = c.successOcrVisible + c.successOcrSolved
+	console.log("")
+	console.log("=== End-of-run summary ===")
+	console.log(`Total files:                 ${pad(c.totalFiles, 4)}`)
+	console.log(`Already imported:            ${pad(c.alreadyImported, 4)}`)
+	console.log(`Skipped (visual):            ${pad(c.skippedVisual, 4)}`)
+	console.log(`Skipped (no-solve):          ${pad(c.skippedNoSolve, 4)}`)
+	console.log(`Extract failures:            ${pad(c.extractFailures, 4)}`)
+	console.log(`Explanation failures:        ${pad(c.explanationFailures, 4)}`)
+	console.log(`Ingest failures:             ${pad(c.ingestFailures, 4)}`)
+	console.log(`Needs review:                ${pad(c.needsReview, 4)}`)
+	console.log(`Successfully ingested:       ${pad(success, 4)}`)
+	console.log(
+		`  - visible answer:          ${pad(c.successOcrVisible, 4)}  (orig explanation: ${c.successWithOriginal}, no orig: ${c.successWithoutOriginal})`
+	)
+	console.log(`  - solve + verify:          ${pad(c.successOcrSolved, 4)}`)
+}
+
+async function processImage(
+	filePath: string,
+	args: CliArgs,
+	counters: Counters,
+	importedHashes: Set<string>
+): Promise<void> {
+	const hash = sha256File(filePath)
+	const relPath = path.relative(process.cwd(), filePath)
+	const shortHash = hash.slice(0, 12)
+
+	console.log(`\n--- ${relPath}  [${shortHash}…]`)
+
+	if (importedHashes.has(hash)) {
+		counters.alreadyImported++
+		console.log("  [skip] already imported")
+		return
+	}
+
+	const result = await extractFromImage(filePath)
+	if (!result.ok) {
+		counters.extractFailures++
+		console.log(`  [extract failed] ${result.error}`)
+		if (!args.dryRun) {
+			appendJsonl(EXTRACT_FAILURES_LOG, {
+				timestamp: nowIso(),
+				filePath: relPath,
+				hash,
+				stage: "extract",
+				rawOutput: result.rawOutput,
+				error: result.error
+			})
+		}
+		return
+	}
+
+	const data = result.data
+	console.log(
+		`  [extracted] subType=${data.subTypeId} difficulty=${data.difficulty} answerVisible=${data.answerVisible} explanationVisible=${data.explanationVisible} isTextOnly=${data.isTextOnly}`
+	)
+	if (args.dryRun) {
+		console.log("  [extracted JSON]")
+		const pretty = JSON.stringify(data, null, 2)
+			.split("\n")
+			.map((l) => `    ${l}`)
+			.join("\n")
+		console.log(pretty)
+	}
+
+	if (!data.isTextOnly) {
+		counters.skippedVisual++
+		console.log("  [skip] not text-only (visual content)")
+		if (!args.dryRun) {
+			appendJsonl(SKIPPED_LOG, {
+				timestamp: nowIso(),
+				filePath: relPath,
+				hash,
+				reason: "visual content"
+			})
+		}
+		return
+	}
+
+	let correctAnswer: string
+	let importSource: "ocr-visible" | "ocr-solved"
+
+	if (data.answerVisible && data.correctAnswer) {
+		correctAnswer = data.correctAnswer
+		importSource = "ocr-visible"
+		console.log(`  [answer from screenshot] ${correctAnswer}`)
+	} else {
+		if (args.skipSolve) {
+			counters.skippedNoSolve++
+			console.log("  [skip] no answer visible, --skip-solve set")
+			if (!args.dryRun) {
+				appendJsonl(SKIPPED_LOG, {
+					timestamp: nowIso(),
+					filePath: relPath,
+					hash,
+					reason: "needs solve, --skip-solve set"
+				})
+			}
+			return
+		}
+
+		console.log("  [solve]")
+		let solver: SolverOutput
+		try {
+			solver = await solveQuestion(data.question, data.options)
+		} catch (err) {
+			counters.needsReview++
+			console.log(`  [solve failed] ${errorToString(err)} → needs-review`)
+			if (!args.dryRun) {
+				appendJsonl(NEEDS_REVIEW_LOG, {
+					timestamp: nowIso(),
+					filePath: relPath,
+					hash,
+					failureMode: "solve-error",
+					question: data.question,
+					options: data.options,
+					error: errorToString(err)
+				})
+			}
+			return
+		}
+		console.log(`  [solver] answer=${solver.correctAnswer} confidence=${solver.confidence}`)
+		if (args.dryRun) console.log(`  [solver reasoning] ${solver.reasoning}`)
+
+		console.log("  [verify]")
+		let verifier: VerifierOutput
+		try {
+			verifier = await verifyAnswer(data.question, data.options, solver)
+		} catch (err) {
+			counters.needsReview++
+			console.log(`  [verify failed] ${errorToString(err)} → needs-review`)
+			if (!args.dryRun) {
+				appendJsonl(NEEDS_REVIEW_LOG, {
+					timestamp: nowIso(),
+					filePath: relPath,
+					hash,
+					failureMode: "verify-error",
+					question: data.question,
+					options: data.options,
+					solver,
+					error: errorToString(err)
+				})
+			}
+			return
+		}
+		console.log(
+			`  [verifier] agrees=${verifier.agrees}${verifier.correctIfDisagree ? ` (would pick ${verifier.correctIfDisagree})` : ""}`
+		)
+		if (args.dryRun && verifier.reason) console.log(`  [verifier reason] ${verifier.reason}`)
+
+		if (!verifier.agrees) {
+			counters.needsReview++
+			console.log("  [skip] solver+verifier disagree → needs-review")
+			if (!args.dryRun) {
+				appendJsonl(NEEDS_REVIEW_LOG, {
+					timestamp: nowIso(),
+					filePath: relPath,
+					hash,
+					failureMode: "verify-disagreed",
+					question: data.question,
+					options: data.options,
+					solver,
+					verifier
+				})
+			}
+			return
+		}
+
+		correctAnswer = solver.correctAnswer
+		importSource = "ocr-solved"
+	}
+
+	console.log("  [explain]")
+	let explanation: string
+	try {
+		explanation = await writeUnifiedExplanation(
+			data.question,
+			data.options,
+			correctAnswer,
+			data.subTypeId,
+			data.originalExplanation
+		)
+	} catch (err) {
+		counters.explanationFailures++
+		console.log(`  [explain failed] ${errorToString(err)}`)
+		if (!args.dryRun) {
+			appendJsonl(EXPLANATION_FAILURES_LOG, {
+				timestamp: nowIso(),
+				filePath: relPath,
+				hash,
+				question: data.question,
+				correctAnswer,
+				error: errorToString(err)
+			})
+		}
+		return
+	}
+	console.log("  [unified explanation]")
+	console.log(`    ${explanation}`)
+	if (args.dryRun && data.originalExplanation) {
+		console.log("  [original explanation — for side-by-side comparison]")
+		const indented = data.originalExplanation
+			.split("\n")
+			.map((l) => `    ${l}`)
+			.join("\n")
+		console.log(indented)
+	}
+
+	if (args.dryRun) {
+		console.log(`  [DRY-RUN] would POST as importSource=${importSource}`)
+		if (importSource === "ocr-visible") {
+			counters.successOcrVisible++
+			if (data.originalExplanation) counters.successWithOriginal++
+			else counters.successWithoutOriginal++
+		} else {
+			counters.successOcrSolved++
+		}
+		return
+	}
+
+	const payload: IngestPayload = {
+		subTypeId: data.subTypeId,
+		difficulty: data.difficulty,
+		body: { kind: "text", text: data.question },
+		options: data.options,
+		correctAnswer,
+		explanation,
+		metadata: {
+			importSource,
+			...(data.originalExplanation ? { originalExplanation: data.originalExplanation } : {})
+		}
+	}
+
+	const ingestResult = await postToIngest(payload)
+	if (ingestResult.status < 200 || ingestResult.status >= 300) {
+		counters.ingestFailures++
+		console.log(`  [ingest failed] HTTP ${ingestResult.status}: ${ingestResult.body}`)
+		appendJsonl(INGEST_FAILURES_LOG, {
+			timestamp: nowIso(),
+			filePath: relPath,
+			hash,
+			status: ingestResult.status,
+			responseBody: ingestResult.body,
+			requestBody: payload
+		})
+		return
+	}
+
+	let itemId = "unknown"
+	try {
+		const parsed = JSON.parse(ingestResult.body)
+		if (typeof parsed.itemId === "string") itemId = parsed.itemId
+	} catch {
+		// Successful 2xx but unparseable body — log itemId as "unknown" and proceed.
+	}
+
+	appendJsonl(IMPORTED_LOG, {
+		timestamp: nowIso(),
+		filePath: relPath,
+		hash,
+		itemId,
+		subTypeId: data.subTypeId,
+		difficulty: data.difficulty,
+		importSource,
+		hadOriginalExplanation: Boolean(data.originalExplanation)
+	})
+	importedHashes.add(hash)
+
+	if (importSource === "ocr-visible") {
+		counters.successOcrVisible++
+		if (data.originalExplanation) counters.successWithOriginal++
+		else counters.successWithoutOriginal++
+	} else {
+		counters.successOcrSolved++
+	}
+	console.log(`  [ingested] itemId=${itemId} importSource=${importSource}`)
+}
+
 async function main(): Promise<void> {
 	const parsed = parseArgs(Bun.argv)
 	if ("help" in parsed) {
 		printUsage()
 		return
 	}
+	const args = parsed
 
-	console.log("import-screenshots: parsed args:", JSON.stringify(parsed, null, 2))
-	console.log("(skeleton — pipeline implemented in Step 6)")
+	if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR, { recursive: true })
+
+	console.log(`import-screenshots: inbox=${args.inboxDir}`)
+	console.log(
+		`  flags: dryRun=${args.dryRun} limit=${args.limit ?? "(none)"} sample=${args.sample} skipSolve=${args.skipSolve}`
+	)
+
+	const candidates = args.sample
+		? listPngsRecursive(args.inboxDir)
+		: listPngsTopLevel(args.inboxDir)
+
+	console.log(
+		`  found ${candidates.length} .png file(s) ${args.sample ? "(recursive)" : "(top-level only)"}`
+	)
+
+	let queue = candidates
+	if (args.sample) {
+		// parseArgs guarantees args.limit is defined when --sample is set.
+		if (args.limit === undefined) throw new Error("invariant: --sample requires --limit")
+		queue = deterministicSample(candidates, args.limit)
+		console.log(`  deterministic sample of ${queue.length} (seed=${SAMPLE_SEED}):`)
+		for (const f of queue) console.log(`    - ${path.relative(process.cwd(), f)}`)
+	} else if (args.limit !== undefined) {
+		queue = queue.slice(0, args.limit)
+	}
+
+	if (queue.length === 0) {
+		console.warn("warning: no .png files to process")
+	}
+
+	const importedHashes = loadImportedHashes()
+	console.log(`  loaded ${importedHashes.size} previously-imported hash(es)`)
+
+	const counters = newCounters(queue.length)
+
+	let interrupted = false
+	const handleInterrupt = (): void => {
+		interrupted = true
+		console.log("\n[interrupted] flushing summary…")
+	}
+	process.on("SIGINT", handleInterrupt)
+	process.on("SIGTERM", handleInterrupt)
+
+	try {
+		for (const filePath of queue) {
+			if (interrupted) break
+			try {
+				await processImage(filePath, args, counters, importedHashes)
+			} catch (err) {
+				console.log(`  [unhandled] ${errorToString(err)}`)
+				if (err instanceof Error && err.stack) console.log(err.stack)
+			}
+		}
+	} finally {
+		printSummary(counters)
+	}
 }
 
-await main()
-
-// Silence unused-variable warnings for Step 4 skeleton. These are exported in
-// spirit (they're the constants future Step 6 wiring will reference); the
-// noop reference here just keeps the file from looking like it has dead code.
-void EXTRACT_MODEL
-void SOLVE_MODEL
-void VERIFY_MODEL
-void EXPLAIN_MODEL
-void Anthropic
-void createHash
-void buildSubTypeList
-void subTypeStyleHints
-void extractedItem
-void solverOutput
-void verifierOutput
-void unifiedExplanationOutput
-void EXTRACT_SYSTEM_TEMPLATE
-void SOLVE_SYSTEM
-void VERIFY_SYSTEM
-void EXPLAIN_SYSTEM_TEMPLATE
-void extractFromImage
-void solveQuestion
-void verifyAnswer
-void writeUnifiedExplanation
-void postToIngest
+await main().catch((err: unknown) => {
+	console.error("[fatal]", errorToString(err))
+	if (err instanceof Error && err.stack) console.error(err.stack)
+	process.exit(1)
+})
