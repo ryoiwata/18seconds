@@ -28,7 +28,20 @@ const requestSchema = z.object({
 	metadata: z
 		.object({
 			originalExplanation: z.string().min(1).optional(),
-			importSource: z.string().min(1).max(64).optional()
+			importSource: z.string().min(1).max(64).optional(),
+			structuredExplanation: z
+				.object({
+					parts: z
+						.array(
+							z.object({
+								kind: z.enum(["recognition", "elimination", "tie-breaker"]),
+								text: z.string().min(1),
+								referencedOptions: z.array(z.enum(["A", "B", "C", "D", "E"]))
+							})
+						)
+						.length(3)
+				})
+				.optional()
 		})
 		.optional()
 })
