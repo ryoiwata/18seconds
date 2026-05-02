@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import * as errors from "@superbuilders/errors"
-import { ingestItemAction, suggestTagsAction } from "@/app/(admin)/ingest/actions"
+import { ingestItemAction, suggestTagsAction } from "@/app/(admin)/admin/ingest/actions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"

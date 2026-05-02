@@ -1,4 +1,4 @@
-import { IngestForm } from "@/app/(admin)/ingest/_form"
+import { IngestForm } from "@/app/(admin)/admin/ingest/_form"
 import { subTypes } from "@/config/sub-types"
 
 function IngestPage() {
