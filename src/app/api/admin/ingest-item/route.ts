@@ -24,7 +24,13 @@ const requestSchema = z.object({
 		.max(5),
 	correctAnswer: z.string().min(1).max(64),
 	explanation: z.string().min(1).optional(),
-	strategyId: z.string().uuid().optional()
+	strategyId: z.string().uuid().optional(),
+	metadata: z
+		.object({
+			originalExplanation: z.string().min(1).optional(),
+			importSource: z.string().min(1).max(64).optional()
+		})
+		.optional()
 })
 
 async function POST(req: Request): Promise<Response> {
