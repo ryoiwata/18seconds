@@ -1,4 +1,5 @@
 import * as errors from "@superbuilders/errors"
+import { start } from "workflow/api"
 import { z } from "zod"
 import { type Difficulty, subTypeIds, type SubTypeId } from "@/config/sub-types"
 import { db } from "@/db"
@@ -104,7 +105,7 @@ async function ingestRealItem(input: IngestRealItemInput): Promise<{ itemId: str
 	// Trigger embedding backfill. In dev this awaits the OpenAI roundtrip; in
 	// production with Vercel Workflows the call enqueues durably and the await
 	// resolves once the workflow run is registered (steps run asynchronously).
-	const backfillResult = await errors.try(embeddingBackfillWorkflow({ itemId }))
+	const backfillResult = await errors.try(start(embeddingBackfillWorkflow, [{ itemId }]))
 	if (backfillResult.error) {
 		logger.error(
 			{ error: backfillResult.error, itemId },
