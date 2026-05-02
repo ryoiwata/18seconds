@@ -21,7 +21,7 @@ Architectural shape:
 - **Auth.js v5 with the Drizzle adapter** wrapped in a thin shim that converts `Date ↔ ms` so every Auth.js timestamp column lands as `bigint(_ms)` per `rules/no-timestamp-columns.md`.
 - **PostgreSQL via Drizzle ORM**, with every PK as `uuid("id").primaryKey().notNull().default(sql\`uuidv7()\`)` per `rules/no-uuid-default-random.md`.
 - **`pgvector` extension** on the `items.embedding` column for the validator's uniqueness check at cosine-similarity threshold 0.92 (PRD §3.2, §7).
-- **AWS S3** for item images, served via an auth-checked, key-scoped Next.js route handler that proxies short-TTL signed URLs through Vercel's edge cache.
+- **Text-only v1 scope.** v1 supports only the 11 text-based sub-types (5 verbal + 6 numerical). The abstract sub-types, the attention-to-detail sub-types, and `numerical.data_interpretation` are deferred (PRD §2, §10). Image storage, signed URLs, and any image-rendering pipeline that supported visual sub-types are out of scope for v1; the schema is shaped to make their later addition additive (see §3.3.1).
 
 ---
 
@@ -37,10 +37,10 @@ src/
 │   ├── drizzle-adapter-shim.ts                                # NEW: thin wrapper around @auth/drizzle-adapter; converts Date <-> ms
 │   └── drizzle-adapter-shim.test.ts                           # NEW: round-trip conversion tests for each adapter method
 ├── middleware.ts                                              # NEW: gates every route except /api/auth/*, /login, /api/health, /api/cron/*
-├── env.ts                                                     # MOD: add AUTH_*, ANTHROPIC_API_KEY, OPENAI_API_KEY, S3_*, CRON_SECRET
+├── env.ts                                                     # MOD: add AUTH_*, ANTHROPIC_API_KEY, OPENAI_API_KEY, CRON_SECRET
 │
 ├── config/
-│   ├── sub-types.ts                                           # NEW: 18 sub-type entries (id, displayName, section, latencyThresholdMs, bankTargetByDifficulty)
+│   ├── sub-types.ts                                           # NEW: 11 sub-type entries (id, displayName, section, latencyThresholdMs, bankTargetByDifficulty)
 │   ├── diagnostic-mix.ts                                      # NEW: hand-tuned 50-row (sub_type_id, difficulty) array
 │   ├── difficulty-curves.ts                                   # NEW: per-decile difficulty distribution for full_length and simulation
 │   ├── strategies.ts                                          # NEW: 3 strategies per sub-type (recognition / technique / trap)
@@ -134,16 +134,10 @@ src/
 │   │   ├── item-prompt.tsx                                    # NEW: switch over body.kind dispatching to body-renderer components
 │   │   ├── option-button.tsx                                  # NEW: a single answer-option button used inside item-prompt
 │   │   └── body-renderers/
-│   │       ├── text.tsx                                       # NEW: { kind: 'text' }
-│   │       ├── text-with-image.tsx                            # NEW: { kind: 'text_with_image' }
-│   │       ├── image-pair.tsx                                 # NEW: { kind: 'image_pair' }
-│   │       ├── image-pair-grid.tsx                            # NEW: { kind: 'image_pair_grid' } — visual_duplicates rows
-│   │       ├── column-matching.tsx                            # NEW: { kind: 'column_matching' } — monospace, equal columns
-│   │       ├── chart.tsx                                      # NEW: { kind: 'chart' }
-│   │       └── grid.tsx                                       # NEW: { kind: 'grid' } — matrix, abstract grids
+│   │       └── text.tsx                                       # NEW: { kind: 'text' } — the single v1 body variant
 │   ├── mastery-map/
-│   │   ├── mastery-map.tsx                                    # NEW: 18-icon grid + near-goal line + start CTA + low-contrast triage adherence
-│   │   ├── mastery-icon.tsx                                   # NEW: per-section lucide icons (BookOpen / Calculator / Shapes / ListChecks)
+│   │   ├── mastery-map.tsx                                    # NEW: 11-icon grid + near-goal line + start CTA + low-contrast triage adherence
+│   │   ├── mastery-icon.tsx                                   # NEW: per-section lucide icons (BookOpen for verbal / Calculator for numerical)
 │   │   ├── near-goal-line.tsx                                 # NEW: single text line, no graph
 │   │   └── start-session-button.tsx                           # NEW: primary CTA
 │   ├── narrowing-ramp/
@@ -167,8 +161,6 @@ src/
 │   │   ├── auth/
 │   │   │   └── [...nextauth]/route.ts                         # NEW: Auth.js v5 route handler
 │   │   ├── health/route.ts                                    # NEW: 200 OK probe — bypassed by middleware
-│   │   ├── items/
-│   │   │   └── [itemId]/image/[key]/route.ts                  # NEW: auth-checked, key-validated S3 image proxy
 │   │   ├── sessions/
 │   │   │   └── [sessionId]/heartbeat/route.ts                 # NEW: 204 endpoint for navigator.sendBeacon
 │   │   ├── cron/
@@ -216,7 +208,7 @@ src/
 │       │   ├── page.tsx                                       # NEW: real-item ingest form
 │       │   └── actions.ts                                     # NEW: ingestItemAction server action
 │       └── generate/
-│           ├── page.tsx                                       # NEW: 18 × 4 grid (live / candidate / target) + per-cell top-up button + cost dashboard
+│           ├── page.tsx                                       # NEW: 11 × 4 grid (live / candidate / target) + per-cell top-up button + cost dashboard
 │           └── actions.ts                                     # NEW: triggerGenerationAction server action
 │
 └── lib/
@@ -231,7 +223,6 @@ Add via `bun add`:
 - `@anthropic-ai/sdk` — generator LLM.
 - `openai` — validator LLM and embeddings.
 - `motion` — Framer Motion successor used by `motion/react`.
-- `@aws-sdk/client-s3` and `@aws-sdk/s3-request-presigner` — image upload, signed-URL signing, server-side fetch.
 
 `pgvector` is a Postgres extension, not an npm package — installed via `src/db/programs/extensions/pgvector.ts`. The Drizzle integration is a custom column type written by hand in `src/db/lib/pgvector.ts`. `workflow@4.2.4` is already installed and is the runtime for `'use workflow'` / `'use step'`.
 
@@ -336,7 +327,7 @@ Composite PK: `(identifier, token)`.
 |---|---|---|
 | `id` | `varchar(64)` | PK (e.g. `"verbal.synonyms"`) |
 | `name` | `varchar(128)` | `notNull` |
-| `section` | `pgEnum('sub_type_section', ['verbal','numerical','abstract','attention_to_detail'])` | `notNull` |
+| `section` | `pgEnum('sub_type_section', ['verbal','numerical'])` | `notNull` (extending the enum is the additive migration when visual sections are added in a future version) |
 | `latency_threshold_ms` | `bigint` | `notNull` |
 
 This is the only table that does NOT use a UUIDv7 PK — sub-type ids are stable, human-readable strings used as foreign keys throughout. Seeded from `src/config/sub-types.ts` via the seed script.
@@ -364,7 +355,7 @@ Three strategies per sub-type seeded from `src/config/strategies.ts`. The (`sub_
 | `source` | `pgEnum('item_source', ['real','generated'])` | `notNull` |
 | `status` | `pgEnum('item_status', ['live','candidate','retired'])` | `notNull`, `default 'candidate'` |
 | `body` | `jsonb` | `notNull` (Zod-validated discriminated union — §3.3.1) |
-| `options_json` | `jsonb` | `notNull` (`{ id: string; text?: string; imageUrl?: string }[]`) |
+| `options_json` | `jsonb` | `notNull` (`{ id: string; text: string }[]` — text-only in v1; `imageUrl?` is reserved for future visual sub-types) |
 | `correct_answer` | `varchar(64)` | `notNull` (matches an `option.id`) |
 | `explanation` | `text` | nullable |
 | `strategy_id` | `uuid` | nullable, FK → `strategies.id` |
@@ -380,55 +371,20 @@ Indexes:
 
 ##### 3.3.1 `body` discriminator schema
 
-Defined as a Zod `discriminatedUnion("kind", [...])` in `src/server/items/body-schema.ts`. Variants:
+v1 is text-only: the body has exactly one variant, but it is still expressed as a Zod `discriminatedUnion("kind", [...])` in `src/server/items/body-schema.ts` so that future visual variants are an additive change rather than a schema rewrite.
 
 ```ts
-const ImageKey = z.string().regex(/^[a-z0-9-]+\.(png|jpg|webp)$/)
-
 const BodyText = z.object({
     kind: z.literal("text"),
     text: z.string()
 })
-const BodyTextWithImage = z.object({
-    kind: z.literal("text_with_image"),
-    text: z.string(),
-    imageKey: ImageKey
-})
-const BodyImagePair = z.object({
-    kind: z.literal("image_pair"),
-    text: z.string(),
-    leftKey: ImageKey,
-    rightKey: ImageKey
-})
-const BodyImagePairGrid = z.object({
-    kind: z.literal("image_pair_grid"),
-    text: z.string(),
-    rows: z.array(z.object({ leftKey: ImageKey, rightKey: ImageKey })).min(2).max(8)
-})
-const BodyColumnMatching = z.object({
-    kind: z.literal("column_matching"),
-    text: z.string(),
-    rows: z.array(z.object({ left: z.string(), right: z.string() })).min(3).max(15)
-})
-const BodyChart = z.object({
-    kind: z.literal("chart"),
-    text: z.string(),
-    chartKey: ImageKey,
-    caption: z.string().optional()
-})
-const BodyGrid = z.object({
-    kind: z.literal("grid"),
-    text: z.string(),
-    cellsKey: ImageKey
-})
 
-const ItemBody = z.discriminatedUnion("kind", [
-    BodyText, BodyTextWithImage, BodyImagePair, BodyImagePairGrid,
-    BodyColumnMatching, BodyChart, BodyGrid
-])
+const ItemBody = z.discriminatedUnion("kind", [BodyText])
 ```
 
-`src/server/items/body-schema.ts` also exports `imageKeysFor(body): string[]` — given a parsed body, returns the set of image keys it references. The image route handler (§7.10) uses this to validate that a requested key is legitimately associated with the item. Generation pipeline output and admin ingest both validate via `ItemBody.safeParse` per `rules/zod-usage.md`.
+The renderer dispatches via `switch` over `body.kind` with TypeScript exhaustiveness checking; today it has one case. Generation pipeline output and admin ingest both validate via `ItemBody.safeParse` per `rules/zod-usage.md`.
+
+Image storage is deferred to a future version when visual sub-types are added; the items table schema does not currently include image references, and the body schema does not carry image keys. When that future version lands, additional variants (text_with_image, chart, grid, image_pair, image_pair_grid, column_matching) will be added to the union, and the renderer's switch will gain corresponding cases.
 
 #### `src/db/schemas/catalog/candidate_promotion_log.ts` — table `candidate_promotion_log`
 
@@ -591,7 +547,7 @@ If `uuidv7LowerBound` is not yet exported from this file, it must be added; the 
 
 ### 4.1 `src/config/sub-types.ts`
 
-Single source of truth for the 18 sub-types per PRD §2. Exports `subTypes`:
+Single source of truth for the 11 v1 sub-types per PRD §2. Exports `subTypes`:
 
 ```ts
 type Difficulty = "easy" | "medium" | "hard" | "brutal"
@@ -599,7 +555,7 @@ type Difficulty = "easy" | "medium" | "hard" | "brutal"
 interface SubTypeConfig {
     id: SubTypeId
     displayName: string
-    section: "verbal" | "numerical" | "abstract" | "attention_to_detail"
+    section: "verbal" | "numerical"
     latencyThresholdMs: number
     bankTargetByDifficulty: Record<Difficulty, number>
 }
@@ -607,17 +563,17 @@ interface SubTypeConfig {
 
 Three latency bands, mapped to cognitive operation type:
 
-- **12s (recognition):** `verbal.synonyms`, `verbal.antonyms`, `attention_to_detail.column_matching`, `numerical.number_series`, `numerical.letter_series`.
-- **15s (quick structured reasoning):** `verbal.analogies`, `verbal.sentence_completion`, `numerical.fractions`, `numerical.percentages`, `numerical.averages_ratios`, `numerical.word_problems`, `attention_to_detail.visual_duplicates`.
-- **18s (sustained multi-constraint reasoning):** `verbal.logic`, `numerical.data_interpretation`, `abstract.shape_series`, `abstract.matrix`, `abstract.next_in_series`, `abstract.odd_one_out`.
+- **12s (recognition):** `verbal.synonyms`, `verbal.antonyms`, `numerical.number_series`, `numerical.letter_series`.
+- **15s (quick structured reasoning):** `verbal.analogies`, `verbal.sentence_completion`, `numerical.fractions`, `numerical.percentages`, `numerical.averages_ratios`.
+- **18s (sustained multi-constraint reasoning):** `verbal.logic`, `numerical.word_problems`.
 
-Default `bankTargetByDifficulty` is `{ easy: 50, medium: 50, hard: 50, brutal: 50 }`. The four `abstract.*` sub-types and `attention_to_detail.visual_duplicates` use `{ easy: 30, medium: 30, hard: 30, brutal: 30 }` because they are real-only and the seed bank carries them.
+Default `bankTargetByDifficulty` is `{ easy: 50, medium: 50, hard: 50, brutal: 50 }`. All 11 v1 sub-types use the default; there are no real-only sub-types in v1.
 
-`SubTypeId` is a `as const` union of the 18 string ids. A migration in `src/db/scripts/seed-sub-types.ts` populates the `sub_types` table from this file.
+`SubTypeId` is a `as const` union of the 11 string ids. A migration in `src/db/scripts/seed-sub-types.ts` populates the `sub_types` table from this file.
 
 ### 4.2 `src/config/strategies.ts`
 
-Exports `strategies: Record<SubTypeId, StrategyEntry[]>` where `StrategyEntry = { kind: 'recognition' | 'technique' | 'trap'; text: string }`. Each sub-type has exactly three entries — one of each kind — distilled from `docs/CCAT-categories.md`. Each entry is 1–2 sentences. A migration populates the `strategies` table from this file.
+Exports `strategies: Record<SubTypeId, StrategyEntry[]>` where `StrategyEntry = { kind: 'recognition' | 'technique' | 'trap'; text: string }`. Each of the 11 sub-types has exactly three entries — one of each kind — distilled from `docs/CCAT-categories.md`. 33 strategy rows total (3 × 11). Each entry is 1–2 sentences. A migration populates the `strategies` table from this file.
 
 ### 4.3 `src/config/admins.ts`
 
@@ -625,7 +581,7 @@ Hardcoded admin email allowlist. Lowercase only. Compared case-insensitively in 
 
 ### 4.4 `src/config/item-templates.ts`
 
-Per-sub-type generator templates, versioned. The Zod schema for each template's structured output emits `body: { kind: "text", text: string }` so the wire format is uniform regardless of source (the body discriminator handles non-text variants only for real items in v1):
+Per-sub-type generator templates, versioned. v1 has 11 templates (one per v1 sub-type). The Zod schema for each template's structured output emits `body: { kind: "text", text: string }`:
 
 ```ts
 interface ItemTemplate {
@@ -633,7 +589,7 @@ interface ItemTemplate {
     version: number
     systemPrompt: string
     userPromptFor(difficulty: Difficulty): string
-    schema: z.ZodTypeAny  // emits { body, options[], correctAnswer, explanation }
+    schema: z.ZodTypeAny  // emits { body: { kind: "text", text }, options[], correctAnswer, explanation }
 }
 ```
 
@@ -641,7 +597,12 @@ Templates are versioned so a regeneration run can be associated with a specific 
 
 ### 4.5 `src/config/diagnostic-mix.ts`
 
-Hand-tuned 50-row array for the diagnostic. Each entry is `{ subTypeId, difficulty }`. Brutal-tier items are excluded. Numerical sub-types are over-weighted. Distribution: 5 verbal × 3 = 15; 7 numerical × 4 = 28; 4 abstract × 1 = 4; `attention_to_detail.column_matching` × 2 + `attention_to_detail.visual_duplicates` × 1 = 3. Tier mix per sub-type is hand-picked (mostly easy + medium + hard, sometimes 2 medium).
+Hand-tuned 50-row array for the diagnostic. Each entry is `{ subTypeId, difficulty }`. Brutal-tier items are excluded. Distribution across the 11 v1 sub-types: 5 verbal × 4 each = 20; 6 numerical × 5 each = 30. Total = 50. Within each sub-type, tier mix is hand-picked from `easy / medium / hard` (no brutal); typical per-sub-type shapes:
+
+- 4-item verbal block: `[easy, medium, medium, hard]`.
+- 5-item numerical block: `[easy, medium, medium, medium, hard]`.
+
+The exact tier assignments are curated in the file rather than derived from a formula — the diagnostic is calibration-critical and a flat data file is more honest than an algorithm.
 
 ### 4.6 `src/config/difficulty-curves.ts`
 
@@ -739,14 +700,10 @@ AUTH_GOOGLE_ID: z.string().min(1),
 AUTH_GOOGLE_SECRET: z.string().min(1),
 ANTHROPIC_API_KEY: z.string().startsWith("sk-ant-"),
 OPENAI_API_KEY: z.string().startsWith("sk-"),
-S3_BUCKET: z.string().min(1),
-S3_REGION: z.string().min(1),
-S3_ACCESS_KEY_ID: z.string().min(1),
-S3_SECRET_ACCESS_KEY: z.string().min(1),
 CRON_SECRET: z.string().min(32)
 ```
 
-And the matching `runtimeEnv` entries reading from `process.env.*`. Update `.env.example` to document the new variables. In production, `S3_*` are sourced from the OIDC-federated AWS credentials provisioned by the IaC; locally they are static keys.
+And the matching `runtimeEnv` entries reading from `process.env.*`. Update `.env.example` to document the new variables.
 
 ### 5.5 `src/middleware.ts`
 
@@ -862,8 +819,8 @@ interface TimerPrefs {
 
 interface ItemForRender {
     id: string
-    body: ItemBodyDecoded              // post-Zod parsing, discriminated by kind
-    options: { id: string; text?: string; imageUrl?: string }[]
+    body: ItemBodyDecoded              // post-Zod parsing; discriminated union with one variant in v1 ({ kind: 'text' })
+    options: { id: string; text: string }[]
     selection: ItemSelection           // opaque; echoed back in the next SubmitAttemptInput
 }
 
@@ -939,7 +896,7 @@ grid-template-rows: auto 1fr auto;
 - Start: `performance.now()` captured in the `<ItemSlot>` mount effect.
 - End: `performance.now()` captured in the click handler that dispatches `submit`.
 - Difference is the `latency_ms` written to `attempts.latency_ms`.
-- Latency anchors on the **text paint**, not the image paint. Body kinds with images (e.g., `image_pair`, `grid`) load images via the `/api/items/[itemId]/image/[key]` route handler asynchronously; demanding image-loaded latency would systematically penalize visual sub-types.
+- v1 items are text-only, so first paint == text paint == question visible. (When future visual sub-types are added, latency will need to anchor on the text paint rather than the image paint so visual sub-types aren't systematically penalized.)
 - The shell does not round; the database column is `integer` so the value is implicitly truncated by `Math.floor` at the boundary.
 
 ### 6.6 Three peripheral elements
@@ -950,7 +907,7 @@ grid-template-rows: auto 1fr auto;
 | `<PaceTrack>` | horizontal bar of discrete blocks (one per question), same height as session timer bar | leftmost block removed on each submit | tied to session-timer visibility. **HIDDEN** for diagnostic. | togglable only via the session timer toggle. |
 | `<QuestionTimerBar>` | horizontal bar in `footer`, depletes as the per-question target counts down | left edge inward | OFF for all session types unless previously enabled | yes |
 
-`timerPrefs` is persisted per user. After every toggle, a server action writes `users.timer_prefs_json`. The server action does **not** call `revalidatePath` — this is a deliberate exception to the standard mutation pattern (§7.11).
+`timerPrefs` is persisted per user. After every toggle, a server action writes `users.timer_prefs_json`. The server action does **not** call `revalidatePath` — this is a deliberate exception to the standard mutation pattern (§7.8).
 
 ### 6.7 Triage prompt — persistent, never auto-submits
 
@@ -997,13 +954,13 @@ The shell mounts a `<Heartbeat sessionId={sessionId} />` client component that:
 - Fires the same beacon on `pagehide` (clean tab close).
 - Uses `sendBeacon`, not `fetch`, because `setInterval` callbacks fired via `fetch` get throttled when the tab is backgrounded (which would falsely abandon a session when the user briefly switches tabs).
 
-The route handler at `/api/sessions/[sessionId]/heartbeat` updates `last_heartbeat_ms = Date.now()` and returns `204`. The abandon-sweep cron (§7.13) finalizes sessions with stale heartbeats.
+The route handler at `/api/sessions/[sessionId]/heartbeat` updates `last_heartbeat_ms = Date.now()` and returns `204`. The abandon-sweep cron (§7.12) finalizes sessions with stale heartbeats.
 
 ---
 
 ## 7. Server actions, route handlers, and workflows
 
-All server actions live at the closest `actions.ts` file under `src/app/(app)/...`. All follow the patterns demonstrated in `src/app/actions.ts`: file-top `"use server"`; mutations use `errors.try` around DB calls (`rules/no-try.md`); errors are logged then thrown via `errors.wrap` (`rules/error-handling.md`); writes call `revalidatePath` after writes (with the specific exception in §7.11).
+All server actions live at the closest `actions.ts` file under `src/app/(app)/...`. All follow the patterns demonstrated in `src/app/actions.ts`: file-top `"use server"`; mutations use `errors.try` around DB calls (`rules/no-try.md`); errors are logged then thrown via `errors.wrap` (`rules/error-handling.md`); writes call `revalidatePath` after writes (with the specific exception in §7.8).
 
 API routes live under `src/app/api/`. They use the same `errors.try` pattern.
 
@@ -1130,38 +1087,22 @@ Updates `users.timer_prefs_json`. **Does not call `revalidatePath`** — the foc
 async function ingestItemAction(input: {
     subTypeId: SubTypeId
     difficulty: "easy" | "medium" | "hard" | "brutal"
-    body: ItemBody                  // Zod-validated, includes any image keys
-    options: { id: string; text?: string; imageUrl?: string }[]
+    body: ItemBody                  // Zod-validated discriminated union; v1 has one variant ({ kind: 'text' })
+    options: { id: string; text: string }[]
     correctAnswer: string
     explanation?: string
     strategyId?: string
-    imageUploads: { key: string; data: ArrayBuffer; contentType: string }[]
 }): Promise<{ itemId: string }>
 ```
 
 Side effects:
 - Calls `requireAdminEmail()` first; throws `ErrUnauthorized` on failure.
 - Validates `input.body` with `ItemBody.safeParse` per `rules/zod-usage.md`.
-- Validates each `imageUploads.contentType` via file magic bytes (PNG / JPEG / WebP only).
 - Inserts an `items` row with `source: "real"`, `status: "live"`, embedding NULL, `body` and `options_json` populated.
-- For each image upload, `PutObject` to S3 at `items/<itemId>/<key>`.
 - Triggers `embeddingBackfillWorkflow(itemId)` so the embedding lands asynchronously.
 - Calls `revalidatePath('/admin/ingest')` and `revalidatePath('/admin/generate')` (for the bank-target grid).
 
-### 7.10 Item image proxy — `src/app/api/items/[itemId]/image/[key]/route.ts`
-
-`GET` handler. Steps:
-
-1. Reads `auth()` — any authed user can view live items; admin gate is enforced for items where `status != 'live'`.
-2. Loads the item by `itemId`, parses `body` via `ItemBody.safeParse`, computes the set of valid image keys via `imageKeysFor(body)` from `src/server/items/body-schema.ts`. Also includes any `imageUrl` keys from `options_json`.
-3. Rejects with `404` if `key` is not in the valid set.
-4. Signs an S3 `GetObject` URL for `items/<itemId>/<key>` with 5-minute TTL.
-5. Fetches via `fetch(signedUrl)`.
-6. Streams the bytes back with `Cache-Control: private, max-age=86400, immutable`, `Content-Type` set from the S3 response.
-
-The signed URL never travels to the client. `private` (not `public`) because the route URL embeds the auth check; `immutable` because items are keyed by id and never change.
-
-### 7.11 `triggerGenerationAction` — `src/app/(admin)/generate/actions.ts`
+### 7.10 `triggerGenerationAction` — `src/app/(admin)/generate/actions.ts`
 
 ```ts
 async function triggerGenerationAction(input: {
@@ -1176,11 +1117,11 @@ Side effects:
 - Enqueues `count` invocations of `itemGenerationWorkflow({ subTypeId, difficulty })`.
 - The admin UI displays a confirmation dialog when `count >= 10` naming the cell, count, and estimated cost; below 10, the action fires without confirmation.
 
-### 7.12 `deleteAccount` — `src/app/(app)/settings/delete-account/actions.ts`
+### 7.11 `deleteAccount` — `src/app/(app)/settings/delete-account/actions.ts`
 
 Server action wrapping `src/server/auth/account-deletion.ts:deleteAccount`. Reads `auth()`, calls `deleteAccount(session.user.id)`, calls `signOut()`, redirects to `/login`. The page renders a confirmation dialog with the cascade summary before invoking.
 
-### 7.13 Cron route handlers
+### 7.12 Cron route handlers
 
 `src/app/api/cron/abandon-sweep/route.ts` (`* * * * *`):
 - Validates `Authorization: Bearer ${env.CRON_SECRET}`.
@@ -1212,20 +1153,19 @@ For each finalized session, enqueue `masteryRecomputeWorkflow(sessionId)`.
 }
 ```
 
-### 7.14 API route handlers
+### 7.13 API route handlers
 
 | route | method | purpose |
 |---|---|---|
 | `src/app/api/auth/[...nextauth]/route.ts` | `GET`, `POST` | Standard Auth.js v5 handlers — `export const { GET, POST } = handlers` from `src/auth.ts`. |
 | `src/app/api/health/route.ts` | `GET` | Returns `200 {"ok":true}`. Bypassed by middleware. |
-| `src/app/api/items/[itemId]/image/[key]/route.ts` | `GET` | Auth-checked, key-validated S3 image proxy (§7.10). |
 | `src/app/api/sessions/[sessionId]/heartbeat/route.ts` | `POST` | 204 endpoint for `navigator.sendBeacon`. |
 | `src/app/api/cron/abandon-sweep/route.ts` | `GET` | Per-minute cron trigger. |
 | `src/app/api/cron/candidate-promotion/route.ts` | `GET` | Nightly cron trigger. |
 | `src/app/api/admin/generate-items/route.ts` | `POST` | Admin-gated wrapper around `triggerGenerationAction` for non-form callers. |
 | `src/app/api/admin/ingest-item/route.ts` | `POST` | Admin-gated wrapper around `ingestItemAction` for non-form callers. |
 
-### 7.15 Error patterns
+### 7.14 Error patterns
 
 Every server action and API route follows `rules/error-handling.md`. Module-level error sentinels per `rules/no-extends-error.md`:
 
@@ -1234,7 +1174,6 @@ const ErrSessionNotFound = errors.new("session not found")
 const ErrItemNotFound = errors.new("item not found")
 const ErrStrategyReviewRequired = errors.new("strategy review required before dismiss")
 const ErrUnauthorized = errors.new("unauthorized")
-const ErrInvalidImageKey = errors.new("invalid image key")
 const ErrCronAuth = errors.new("cron authorization failed")
 ```
 
@@ -1602,10 +1541,10 @@ The session-timer toggle does NOT live on the configure page — it's a focus-sh
 
 ### 10.3 Full-length test — `/test`
 
-PRD §4.5. 50 items, 15 minutes, real-test difficulty mix with randomized cross-category interleaving (the actual CCAT does not divide questions into sections per CCAT-categories.md "Test Format Notes").
+PRD §4.5. 50 items, 15 minutes, real-test difficulty mix with randomized interleaving across the 11 v1 sub-types (verbal and numerical, no section breaks). The real CCAT additionally interleaves abstract and attention-to-detail items; v1 omits those because v1 does not cover those sections.
 
 1. `/test/page.tsx` renders `<NarrowingRamp>`.
-2. `startSession({ type: "full_length", ifThenPlan })`. `getNextItem` selects per the per-decile mix in `src/config/difficulty-curves.ts`, with cross-category interleaving (the ordering of sub-types within a decile is randomized per session). Pulls from `source: "real"` first; only falls back to `generated` when the real-bank set is exhausted for the requested sub-type/difficulty bucket.
+2. `startSession({ type: "full_length", ifThenPlan })`. `getNextItem` selects per the per-decile mix in `src/config/difficulty-curves.ts`, with cross-sub-type interleaving (the ordering of sub-types within a decile is randomized per session). Pulls from `source: "real"` first; only falls back to `generated` when the real-bank set is exhausted for the requested sub-type/difficulty bucket.
 3. `<FocusShell>` with `sessionDurationMs: 900000`, `perQuestionTargetMs: 18000`, `paceTrackVisible: true`.
 4. After submit-or-timeout, `endSession`. `/post-session/[sessionId]` renders WITH the 30s strategy-review gate. Dismiss button is disabled until 30s have elapsed AND `<StrategyReviewGate>` reports the strategy was viewed; `dismissPostSession` enforces this server-side via `ErrStrategyReviewRequired`. The strategy is picked deterministically: lowest accuracy → highest median latency → lexicographic `sub_type_id`. Within the chosen sub-type, pick least-recently-viewed strategy via a LEFT JOIN against `strategy_views`.
 
@@ -1692,7 +1631,7 @@ This list is the union of `rules/*.md` and `gritql/*.grit` actually present in t
 - [ ] **No non-null assertions (`!`).** Validate and throw instead. (`biome/base.json:71-74` `style/noNonNullAssertion: error`)
 - [ ] **No `process.env`.** Use `env` from `@/env`. (`biome/base.json:70` `style/noProcessEnv: error`)
 - [ ] **No `forEach`.** Use `for...of`. (`biome/base.json:34-36` `complexity/noForEach: error`)
-- [ ] **No `<img>`.** Use Next `<Image>`, or render via the `/api/items/[itemId]/image/[key]` route handler for item images. (`biome/base.json:106` `performance/noImgElement: error`)
+- [ ] **No `<img>`.** Use Next `<Image>`. (`biome/base.json:106` `performance/noImgElement: error`) v1 has no item images so the application surface today rarely needs `<Image>` either; the rule is documented for completeness and for future visual sub-types.
 - [ ] **Unused variables/imports/parameters are errors.** (`biome/base.json:53-56`)
 - [ ] **No `timestamp` / `date` / `time` / `interval` columns.** Use `bigint` `_ms`. (`rules/no-timestamp-columns.md`, enforced by `scripts/dev/lint/rules/no-timestamp-columns.ts`)
 - [ ] **No `uuid().defaultRandom()`.** Use `default(sql\`uuidv7()\`)`. (`rules/no-uuid-default-random.md`, enforced by `scripts/dev/lint/rules/no-uuid-default-random.ts`)
@@ -1711,7 +1650,7 @@ Six phases over a 2-week window. Each phase lists the files to create or modify 
 
 ### Phase 1 — Foundations (week 1, days 1–3)
 
-- `src/env.ts` (MOD: add AUTH_*, *_API_KEY, S3_*, CRON_SECRET)
+- `src/env.ts` (MOD: add AUTH_*, *_API_KEY, CRON_SECRET)
 - `src/auth.ts` (NEW), `src/auth.config.ts` (NEW), `src/auth/drizzle-adapter-shim.ts` (NEW), `src/auth/drizzle-adapter-shim.test.ts` (NEW)
 - `src/middleware.ts` (NEW)
 - `src/db/lib/pgvector.ts` (NEW), confirm `src/db/lib/uuid-time.ts` exports `uuidv7LowerBound` (add if missing)
@@ -1729,13 +1668,12 @@ Six phases over a 2-week window. Each phase lists the files to create or modify 
 ### Phase 2 — Real-item path (week 1, days 3–5)
 
 - `src/server/items/{body-schema,ingest,tagger,recency,promotion}.ts` (NEW)
-- `src/components/item/{item-prompt,option-button}.tsx` (NEW) and `src/components/item/body-renderers/*` (NEW)
+- `src/components/item/{item-prompt,option-button}.tsx` (NEW) and `src/components/item/body-renderers/text.tsx` (NEW; the only v1 body variant)
 - `src/app/(admin)/layout.tsx` (NEW), `src/app/(admin)/ingest/{page,actions}.tsx,ts` (NEW)
 - `src/app/api/admin/ingest-item/route.ts` (NEW)
-- `src/app/api/items/[itemId]/image/[key]/route.ts` (NEW)
 - `src/server/generation/embeddings.ts` (NEW)
 - `src/workflows/embedding-backfill.ts` (NEW)
-- Hand-seed ~150 real items via the form (40–50 per visual sub-type). Validates the body discriminator end-to-end.
+- Hand-seed ~150 real items via the form, distributed across the 11 v1 sub-types. Validates the (single-variant) body discriminator end-to-end.
 
 ### Phase 3 — Practice surface (week 1, days 5–7)
 
@@ -1757,7 +1695,7 @@ Six phases over a 2-week window. Each phase lists the files to create or modify 
 
 ### Phase 4 — Generation pipeline (week 2, days 1–3)
 
-- Vercel + RDS + S3 wired (preview deployment first; promotion to production happens at launch).
+- Vercel + RDS wired (preview deployment first; promotion to production happens at launch).
 - `src/server/generation/{pipeline,generator,validator,similarity,pricing}.ts` (NEW)
 - `src/workflows/item-generation.ts` (NEW)
 - `src/app/(admin)/generate/{page,actions}.{tsx,ts}` (NEW), `src/app/api/admin/generate-items/route.ts` (NEW)
@@ -1786,3 +1724,9 @@ Six phases over a 2-week window. Each phase lists the files to create or modify 
 - Surface strategies in `<PostSessionReview>` (already wired in phase 5).
 
 PRD §9 cuts apply if behind: simulation, history detail views, NarrowingRamp's visual-narrowing step. The mastery model, generation pipeline, focus shell, and Mastery Map are non-negotiable.
+
+---
+
+## 13. Open questions
+
+1. **Future visual-sub-type migration.** v1's text-only scope informs eventual addition of the abstract reasoning, attention-to-detail, and `numerical.data_interpretation` sub-types. The current schema is shaped to make that migration additive (single-variant body discriminator stays a discriminated union; `sub_type_section` enum extensible; `options_json` carries `text` only but the type allows `imageUrl` to be added). The specific assumptions that will need revisiting: introducing image keys into the body schema, choosing image storage (S3 with the proxied-image route handler is the obvious choice but isn't committed), wiring image-MIME-type validation at ingest, deciding whether visual sub-types use `selectionStrategy: 'real-only'` or get their own programmatic generators, and re-anchoring latency on text-paint instead of first-paint when image-bearing variants exist. Flagged here so the future migration isn't a surprise; not a v1 deliverable.

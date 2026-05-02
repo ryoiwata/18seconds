@@ -1,8 +1,8 @@
 # 18 Seconds — Product Requirements Document
 
-A self-service web application for adults preparing for the Criteria Cognitive Aptitude Test (CCAT). Users practice over 1–4 week prep cycles, building speed and accuracy across the 18 question sub-types that compose the test.
+A self-service web application for adults preparing for the Criteria Cognitive Aptitude Test (CCAT). Users practice over 1–4 week prep cycles, building speed and accuracy across the 11 text-based question sub-types that v1 covers.
 
-The CCAT is 50 multiple-choice questions in 15 minutes (~18 seconds per question), spanning verbal, numerical, abstract, and attention-to-detail reasoning. No calculator. Score is raw correct out of 50; average is 24/50.
+The CCAT itself is 50 multiple-choice questions in 15 minutes (~18 seconds per question), spanning verbal, numerical, abstract, and attention-to-detail reasoning. v1 of 18 Seconds is text-only: it covers the verbal and numerical sections, leaving the abstract reasoning and attention-to-detail sections (which require image rendering) to a future version. The numerical.data_interpretation sub-type is also deferred because its items rely on charts. No calculator. Score is raw correct out of 50; average is 24/50.
 
 For the full taxonomy of CCAT question types and their strategic notes, see the companion reference document `CCAT-categories.md`.
 
@@ -32,9 +32,9 @@ Adults preparing for the CCAT as part of a hiring screen. Self-motivated, short 
 
 ### Sub-types
 
-The CCAT decomposes into 18 sub-types across four sections. The system treats each sub-type as an independent skill with its own mastery state, item bank, and latency threshold.
+The full CCAT decomposes into 18 sub-types across four sections. v1 of 18 Seconds covers the 11 text-based sub-types: 5 verbal and 6 numerical. The abstract section (4 sub-types), the attention-to-detail section (2 sub-types), and `numerical.data_interpretation` are deferred to a future version because they require image rendering, image storage, and visual item authoring (see §10). The system treats each sub-type as an independent skill with its own mastery state, item bank, and latency threshold.
 
-The 18 sub-types use the following identifiers (used throughout the codebase as the canonical sub-type IDs):
+The 11 v1 sub-types use the following identifiers (used throughout the codebase as the canonical sub-type IDs):
 
 **Verbal (5):**
 - `verbal.synonyms`
@@ -43,37 +43,26 @@ The 18 sub-types use the following identifiers (used throughout the codebase as 
 - `verbal.sentence_completion`
 - `verbal.logic` (syllogisms, spatial-direction problems, and critical reasoning)
 
-**Numerical (7):**
+**Numerical (6):**
 - `numerical.number_series`
 - `numerical.letter_series`
 - `numerical.word_problems` (arithmetic word problems and basic algebra)
 - `numerical.fractions`
 - `numerical.percentages`
 - `numerical.averages_ratios`
-- `numerical.data_interpretation`
 
-**Abstract (4):**
-- `abstract.odd_one_out`
-- `abstract.shape_series`
-- `abstract.matrix`
-- `abstract.next_in_series`
-
-**Attention to Detail (2):**
-- `attention_to_detail.column_matching`
-- `attention_to_detail.visual_duplicates`
-
-The exact sub-type list is configurable via a single source-of-truth config file at `src/config/sub-types.ts`. Initial implementation should support adding a new sub-type by adding a config entry plus an item template — no other code changes.
+The exact sub-type list is configurable via a single source-of-truth config file at `src/config/sub-types.ts`. Initial implementation should support adding a new sub-type by adding a config entry plus an item template — no other code changes. When the deferred image-bearing sub-types are added in a future version, that will require additional work beyond a single config entry (image rendering, S3 storage, body-discriminator variants); the v1 schema is shaped to make that future migration additive rather than rewriting.
 
 ### Items
 
 Every practice question (an "item") has:
 
 - A unique ID (UUIDv7 per the Superbuilder Ruleset)
-- A sub-type (one of the 18 IDs above)
+- A sub-type (one of the 11 IDs above)
 - A difficulty tier: `easy` | `medium` | `hard` | `brutal`
 - A source: `real` | `generated`
 - A status: `live` | `candidate` | `retired`
-- A prompt (text or image reference)
+- A prompt (plain text in v1; the body schema uses a discriminated union that admits one variant today and stays open to future image-bearing variants)
 - Answer options (typically 4–5)
 - The correct answer
 - An optional explanation
@@ -167,7 +156,7 @@ The user is never told which bank an item came from. The system tracks the sourc
 
 First time a user opens the app, they take a 50-question calibration test before anything else. No tutorial, no settings, no profile setup beyond auth.
 
-The diagnostic samples items proportionally across the 18 sub-types and across difficulty tiers. It runs in the same focus-mode shell as regular practice (see section 5).
+The diagnostic samples items across the 11 v1 sub-types using a hand-tuned 50-row mix: 4 items per verbal sub-type (5 × 4 = 20) and 5 items per numerical sub-type (6 × 5 = 30). Brutal-tier items are excluded from the diagnostic. It runs in the same focus-mode shell as regular practice (see section 5).
 
 Output: a per-sub-type mastery estimate computed from the diagnostic attempts. The user lands on the Mastery Map (section 5.2) with mastery icons populated and a recommended first session queued up.
 
@@ -200,11 +189,11 @@ Drill length is configurable (default 10 questions). The drill runs through all 
 
 ### 4.5 Full-length practice test
 
-50 questions in 15 minutes, real-test difficulty mix and randomized interleaving (questions interleaved across the four categories — verbal, numerical, abstract, and attention to detail — with no section breaks, per the actual CCAT format). Pulls from the real-items bank when possible. Exits to the post-session review on completion or timeout.
+50 questions in 15 minutes, real-test difficulty mix and randomized interleaving across the v1 sub-types (verbal and numerical, no section breaks). Pulls from the real-items bank when possible. Exits to the post-session review on completion or timeout. Note: the real CCAT also interleaves abstract and attention-to-detail items; v1's full-length test omits those because v1 does not cover those sections.
 
 ### 4.6 Test-day simulation mode
 
-Identical to the full-length practice test but with stricter UI: no pause button, no visible question-skip indicators, randomized cross-category interleaving and increasing difficulty matching the real Criteria On-Demand Assessment platform. Used as a final dress rehearsal before a real test. Available from the Mastery Map but not the default session option.
+Identical to the full-length practice test but with stricter UI: no pause button, no visible question-skip indicators, randomized cross-sub-type interleaving and increasing difficulty matching the real Criteria On-Demand Assessment platform's progression curve. Used as a final dress rehearsal before a real test. Available from the Mastery Map but not the default session option. The simulation, like the full-length test, only covers the v1 sub-types; users should be aware that the real test will additionally include abstract and attention-to-detail items not represented here.
 
 ---
 
@@ -248,9 +237,9 @@ When a question's elapsed time exceeds 18 seconds, the periphery flashes a singl
 
 The default screen on app open (after auth and post-diagnostic). Contents:
 
-- **Today's near goal.** One categorical target rendered as a single line of text. Examples: "Master Next in Series by Friday — 2 sessions to go." or "Finish today's drill — 1 session left." Computed from current mastery state plus user's target date (section 6.3).
-- **Sub-type mastery icons.** 18 icons in a grid, grouped by section (verbal, numerical, abstract, attention to detail). Each icon shows mastery state via fill: `mastered` (filled), `fluent` (half-filled), `learning` (outlined), `not yet attempted` (locked). No percentages, no numbers, no scores beneath the icons.
-- **Start session button.** Single primary CTA labeled with the next recommended session ("Start drill: Next in Series"). One button. No menu of options.
+- **Today's near goal.** One categorical target rendered as a single line of text. Examples: "Master Number Series by Friday — 2 sessions to go." or "Finish today's drill — 1 session left." Computed from current mastery state plus user's target date (section 6.3).
+- **Sub-type mastery icons.** 11 icons in a grid, grouped by section (verbal: 5 icons; numerical: 6 icons). Each icon shows mastery state via fill: `mastered` (filled), `fluent` (half-filled), `learning` (outlined), `not yet attempted` (locked). No percentages, no numbers, no scores beneath the icons.
+- **Start session button.** Single primary CTA labeled with the next recommended session ("Start drill: Number Series"). One button. No menu of options.
 - **Secondary actions.** Small, low-contrast: "Review (3 due)" if review items exist, "Full-length test," "Test-day simulation," "History."
 
 What's NOT on this screen: percentage progress, calendar view, multi-week roadmap, achievements, motivational messages, anything decorative.
@@ -265,7 +254,7 @@ An optional 75-second protocol that runs before any drill, full-length test, or 
 
 2. **Visual narrowing (15s).** A central fixation point appears. Periphery dims fully. A small target moves slowly across the screen; the user follows it with their eyes. No interaction required. Ends with a brief pulse on the central point.
 
-3. **Session brief (15s).** A categorical preview, plain text: "Today's session: Next in Series drill. 10 questions. 12 seconds each." No success language. No "you've got this." No imagery.
+3. **Session brief (15s).** A categorical preview, plain text: "Today's session: Number Series drill. 10 questions. 12 seconds each." No success language. No "you've got this." No imagery.
 
 4. **Launch (15s).** A 5-second countdown with the periphery already dimmed. The first question appears.
 
@@ -308,7 +297,7 @@ Adjust the line daily based on actual progress. No graphs. One line of text.
 
 ### 6.4 Strategy library
 
-A small library of plain-text strategy notes, one or more per sub-type. Stored in the codebase at `src/config/strategies.ts` (generated based on example problems and reference material). Examples:
+A small library of plain-text strategy notes, three per sub-type (33 total: 3 × 11). The three entries per sub-type differ by **kind**: one recognition tip, one technique tip, one trap-avoidance tip. Stored in the codebase at `src/config/strategies.ts` (generated based on example problems and reference material). Examples:
 
 - Number series: "Test differences between consecutive terms before testing ratios."
 - Antonyms: "When two answers seem opposite, the correct answer is usually the more general opposite."
@@ -502,6 +491,7 @@ A 2-week build plan, in priority order.
 
 ## 10. Out of Scope (for v1)
 
+- **Abstract reasoning sub-types** (`matrix`, `shape_series`, `odd_one_out`, `next_in_series`) and **attention-to-detail sub-types** (`column_matching`, `visual_duplicates`). These require image rendering, image storage, and visual item authoring; v1 is text-only. The `numerical.data_interpretation` sub-type is excluded for the same reason — it relies on charts. These categories will be added in a future version once the text-only loop is validated. Users prepping for the real CCAT should know that ~30% of the test (the abstract and attention-to-detail sections) is not covered by v1.
 - Mobile apps.
 - Multi-language support.
 - Account recovery flows (Google OAuth handles this).
