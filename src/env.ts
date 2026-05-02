@@ -27,9 +27,13 @@ const env = createEnv({
 	 * isn't built with invalid env vars.
 	 */
 	server: {
-		AWS_ROLE_ARN: z.string().startsWith("arn:aws:iam::"),
-		DATABASE_HOST: z.string().min(1),
+		AWS_ROLE_ARN: z.string().startsWith("arn:aws:iam::").optional(),
+		DATABASE_HOST: z.string().min(1).optional(),
 		DATABASE_ADMIN_SECRET_ARN: z.string().startsWith("arn:aws:secretsmanager:").optional(),
+		DATABASE_LOCAL_URL: z
+			.string()
+			.regex(/^postgres(ql)?:\/\//, "must be a postgres connection string")
+			.optional(),
 		VERCEL_PROJECT_PRODUCTION_URL: z.string().optional(),
 		VERCEL_GIT_COMMIT_SHA: z.string().optional(),
 		VERCEL_OIDC_TOKEN: z.string().optional(),
@@ -59,6 +63,7 @@ const env = createEnv({
 		AWS_ROLE_ARN: process.env.AWS_ROLE_ARN,
 		DATABASE_HOST: process.env.DATABASE_HOST,
 		DATABASE_ADMIN_SECRET_ARN: process.env.DATABASE_ADMIN_SECRET_ARN,
+		DATABASE_LOCAL_URL: process.env.DATABASE_LOCAL_URL,
 		VERCEL_PROJECT_PRODUCTION_URL: process.env.VERCEL_PROJECT_PRODUCTION_URL,
 		VERCEL_GIT_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA,
 		VERCEL_OIDC_TOKEN: process.env.VERCEL_OIDC_TOKEN,

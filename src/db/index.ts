@@ -10,38 +10,62 @@ import { type Db, dbSchema } from "@/db/schema"
 import { env } from "@/env"
 import { logger } from "@/logger"
 
-const credentials = awsCredentialsProvider({ roleArn: env.AWS_ROLE_ARN })
-
-const signer = new Signer({
-	region: AWS_REGION,
-	hostname: env.DATABASE_HOST,
-	port: 5432,
-	username: DATABASE_USER,
-	credentials
-})
-
-async function getDbPassword(): Promise<string> {
-	const result = await errors.try(signer.getAuthToken())
-	if (result.error) {
-		logger.error(
-			{ error: result.error, host: env.DATABASE_HOST, user: DATABASE_USER },
-			"rds iam auth token fetch failed"
-		)
-		throw errors.wrap(result.error, "rds iam auth token")
-	}
-	return result.data
+function createLocalPool(connectionString: string): Pool {
+	logger.info("creating local docker pg pool")
+	return new Pool({
+		connectionString,
+		max: 10
+	})
 }
 
-const pool = new Pool({
-	host: env.DATABASE_HOST,
-	port: 5432,
-	user: DATABASE_USER,
-	database: DATABASE_NAME,
-	ssl: { ca: RDS_CA_BUNDLE, rejectUnauthorized: true },
-	max: 10,
-	password: getDbPassword
-})
-attachDatabasePool(pool)
+function createRdsPool(): Pool {
+	if (!env.AWS_ROLE_ARN || !env.DATABASE_HOST) {
+		logger.error(
+			{ hasRole: Boolean(env.AWS_ROLE_ARN), hasHost: Boolean(env.DATABASE_HOST) },
+			"rds pool needs AWS_ROLE_ARN and DATABASE_HOST when DATABASE_LOCAL_URL is unset"
+		)
+		throw errors.new(
+			"db pool: AWS_ROLE_ARN and DATABASE_HOST required when DATABASE_LOCAL_URL is unset"
+		)
+	}
+
+	const credentials = awsCredentialsProvider({ roleArn: env.AWS_ROLE_ARN })
+	const signer = new Signer({
+		region: AWS_REGION,
+		hostname: env.DATABASE_HOST,
+		port: 5432,
+		username: DATABASE_USER,
+		credentials
+	})
+
+	async function getDbPassword(): Promise<string> {
+		const result = await errors.try(signer.getAuthToken())
+		if (result.error) {
+			logger.error(
+				{ error: result.error, host: env.DATABASE_HOST, user: DATABASE_USER },
+				"rds iam auth token fetch failed"
+			)
+			throw errors.wrap(result.error, "rds iam auth token")
+		}
+		return result.data
+	}
+
+	return new Pool({
+		host: env.DATABASE_HOST,
+		port: 5432,
+		user: DATABASE_USER,
+		database: DATABASE_NAME,
+		ssl: { ca: RDS_CA_BUNDLE, rejectUnauthorized: true },
+		max: 10,
+		password: getDbPassword
+	})
+}
+
+const pool = env.DATABASE_LOCAL_URL ? createLocalPool(env.DATABASE_LOCAL_URL) : createRdsPool()
+
+if (!env.DATABASE_LOCAL_URL) {
+	attachDatabasePool(pool)
+}
 
 const db: Db = drizzle({ client: pool, schema: dbSchema })
 
