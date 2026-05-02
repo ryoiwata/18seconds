@@ -4,7 +4,12 @@ const PUBLIC_PREFIXES: ReadonlyArray<string> = [
 	"/api/auth",
 	"/login",
 	"/api/health",
-	"/api/cron"
+	"/api/cron",
+	// /api/admin/* is for scripted/curl access. Each route MUST self-guard
+	// (currently with `Authorization: Bearer ${CRON_SECRET}`). Form-based admin
+	// flows go through server actions under /admin/*, which do session +
+	// admin-allowlist checks via requireAdminEmail() — not this prefix.
+	"/api/admin"
 ]
 
 const proxy = auth(function proxyHandler(req) {
