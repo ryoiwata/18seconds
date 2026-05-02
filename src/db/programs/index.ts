@@ -1,5 +1,6 @@
 import type { SQL } from "drizzle-orm"
 import { pgcrypto } from "@/db/programs/extensions/pgcrypto"
+import { pgvector } from "@/db/programs/extensions/pgvector"
 import {
 	createAppUser,
 	grantAllSequencesToAppUser,
@@ -16,6 +17,7 @@ const programs: SQL[] = [
 	grantRdsIamToAppUser(),
 	grantConnectToAppUser(),
 	pgcrypto(),
+	pgvector(),
 	grantSchemaUsageToAppUser(),
 	grantAllTablesToAppUser(),
 	grantAllSequencesToAppUser(),
