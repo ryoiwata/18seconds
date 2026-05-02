@@ -189,11 +189,13 @@ The contract — follow it strictly:
 
 Write 2–3 sentences of plain prose, in this order:
 
-1. RECOGNITION CUE (1 sentence, ≤ 12 words). Name the pattern category in language the user could carry to a fresh problem of the same kind. Examples: "This is a percent-of-whole problem with two stacked changes." / "Antonym pair where two options point opposite; the more general one wins." / "Letter-series problem with two competing rules."
+1. RECOGNITION CUE — exactly 8-12 words. Name the pattern category in language the user could carry to a fresh problem of the same kind. Examples: "This is a percent-of-whole problem with two stacked changes." / "Antonym pair where two options point opposite; the more general one wins." / "Letter-series problem with two competing rules."
 
-2. METHOD (1 sentence, ≤ 25 words). The fastest path to the answer, framed as what the test-taker DOES — not as an equation derivation. Use simple inline numbers/expressions if needed. Examples: "Apply the 10% trick: 10% of 300 is 30, so 5% is 15, leaving 95%." / "Test differences first: 2, 3, 4, 5 — the next term is F + 4 = J."
+2. METHOD — exactly 18-25 words. The fastest path to the answer, framed as what the test-taker DOES — not as an equation derivation. Use simple inline numbers/expressions if needed. Examples: "Apply the 10% trick: 10% of 300 is 30, so 5% is 15, leaving 95%." / "Test differences first: 2, 3, 4, 5 — the next term is F + 4 = J."
 
-3. TRAP (1 sentence, ≤ 18 words, OPTIONAL — include only when a distractor exemplifies a common error worth naming by category). Examples: "Don't subtract percentages directly across the two changes — anchor each step on the new base." / "The most-tempting wrong answer applies the rule to the LAST term only; check the full sequence."
+3. TRAP — exactly 12-18 words, OPTIONAL (include only when a distractor exemplifies a common error worth naming by category). Examples: "Don't subtract percentages directly across the two changes — anchor each step on the new base." / "The most-tempting wrong answer applies the rule to the LAST term only; check the full sequence."
+
+Before submitting, count the words in each sentence. If any sentence is outside its target range, rewrite that sentence to fit. Sentences are length-bounded for review-screen consistency, not as a guideline.
 
 Hard rules:
 - Plain prose only. No bullets, no headers, no LaTeX, no multi-line equations.
