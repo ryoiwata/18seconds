@@ -28,8 +28,15 @@ const proxy = auth(function proxyHandler(req) {
 
 // `config` must be inline `export const` — Next.js statically parses it from
 // the AST at build time and cannot follow re-exports.
+//
+// Vercel Workflows registers internal route handlers under
+// /.well-known/workflow/v1/* (flow dispatch and step execution). The runtime
+// self-dispatches HTTP calls to those routes from within the dev server, with
+// no NextAuth session attached. They must bypass this auth proxy or runs hang
+// in `pending` and never advance their steps. This carve-out applies to every
+// workflow in the project, not only embedding-backfill.
 export const config = {
-	matcher: ["/((?!_next/static|_next/image|favicon).*)"]
+	matcher: ["/((?!_next/static|_next/image|favicon|\\.well-known/workflow/).*)"]
 }
 
 export { proxy }
