@@ -68,13 +68,13 @@ Your application should now be running at `http://localhost:3000`.
 
 ### Local Postgres via Docker
 
-For week-1 schema iteration the recommended path is a local `pgvector/pgvector:pg16` container — same major version, same extensions, same default collation as the IaC RDS spec. AWS RDS provisioning isn't required during this phase.
+For week-1 schema iteration the recommended path is a local `pgvector/pgvector:pg18` container — same major version, same extensions, same default collation as the IaC RDS spec. AWS RDS provisioning isn't required during this phase.
 
 1. **Start the container:**
     ```bash
     docker compose up -d
     ```
-    Pinned to `pgvector/pgvector:pg16` in `docker-compose.yml`. Data persists in the named `18seconds_pgdata` volume across restarts. If you already have something on `localhost:5432`, stop that first or remap the host port in `docker-compose.yml`.
+    Pinned to `pgvector/pgvector:pg18` in `docker-compose.yml`. Data persists in the named `18seconds_pgdata` volume across restarts. If you already have something on `localhost:5432`, stop that first or remap the host port in `docker-compose.yml`.
 
 2. **Set `DATABASE_LOCAL_URL` in `.env`:**
     ```dotenv
