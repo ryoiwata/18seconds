@@ -1,5 +1,4 @@
-import NextAuth from "next-auth"
-import authConfig from "@/auth.config"
+import { auth } from "@/auth"
 
 const PUBLIC_PREFIXES: ReadonlyArray<string> = [
 	"/api/auth",
@@ -8,9 +7,7 @@ const PUBLIC_PREFIXES: ReadonlyArray<string> = [
 	"/api/cron"
 ]
 
-const { auth } = NextAuth(authConfig)
-
-const middleware = auth(function middlewareHandler(req) {
+const proxy = auth(function proxyHandler(req) {
 	const path = req.nextUrl.pathname
 	for (const prefix of PUBLIC_PREFIXES) {
 		if (path.startsWith(prefix)) {
@@ -24,9 +21,10 @@ const middleware = auth(function middlewareHandler(req) {
 	return undefined
 })
 
-const config = {
+// `config` must be inline `export const` — Next.js statically parses it from
+// the AST at build time and cannot follow re-exports.
+export const config = {
 	matcher: ["/((?!_next/static|_next/image|favicon).*)"]
 }
 
-export default middleware
-export { config }
+export { proxy }

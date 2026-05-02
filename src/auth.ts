@@ -1,14 +1,12 @@
 import NextAuth from "next-auth"
 import Google from "next-auth/providers/google"
 import { bigintAdapter } from "@/auth/drizzle-adapter-shim"
-import authConfig from "@/auth.config"
 import { db } from "@/db"
 import { env } from "@/env"
 
 const adapter = bigintAdapter(db)
 
 const { handlers, auth, signIn, signOut } = NextAuth({
-	...authConfig,
 	adapter,
 	providers: [
 		Google({ clientId: env.AUTH_GOOGLE_ID, clientSecret: env.AUTH_GOOGLE_SECRET })
