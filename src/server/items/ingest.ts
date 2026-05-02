@@ -15,6 +15,11 @@ const optionSchema = z.object({
 	text: z.string().min(1)
 })
 
+const ingestMetadata = z.object({
+	originalExplanation: z.string().min(1).optional(),
+	importSource: z.string().min(1).max(64).optional()
+})
+
 const ingestInput = z.object({
 	subTypeId: z.enum(subTypeIds),
 	difficulty: z.enum(["easy", "medium", "hard", "brutal"]),
@@ -22,7 +27,8 @@ const ingestInput = z.object({
 	options: z.array(optionSchema).min(2).max(5),
 	correctAnswer: z.string().min(1).max(64),
 	explanation: z.string().min(1).optional(),
-	strategyId: z.string().uuid().optional()
+	strategyId: z.string().uuid().optional(),
+	metadata: ingestMetadata.optional()
 })
 
 interface IngestRealItemInput {
@@ -33,6 +39,10 @@ interface IngestRealItemInput {
 	correctAnswer: string
 	explanation?: string
 	strategyId?: string
+	metadata?: {
+		originalExplanation?: string
+		importSource?: string
+	}
 }
 
 async function ingestRealItem(input: IngestRealItemInput): Promise<{ itemId: string }> {
@@ -64,6 +74,14 @@ async function ingestRealItem(input: IngestRealItemInput): Promise<{ itemId: str
 		throw errors.wrap(ErrIngestValidation, "correctAnswer not in options")
 	}
 
+	const metadataJson: Record<string, string> = {}
+	if (data.metadata?.originalExplanation) {
+		metadataJson.originalExplanation = data.metadata.originalExplanation
+	}
+	if (data.metadata?.importSource) {
+		metadataJson.importSource = data.metadata.importSource
+	}
+
 	const insertResult = await errors.try(
 		db
 			.insert(items)
@@ -77,7 +95,7 @@ async function ingestRealItem(input: IngestRealItemInput): Promise<{ itemId: str
 				correctAnswer: data.correctAnswer,
 				explanation: data.explanation,
 				strategyId: data.strategyId,
-				metadataJson: {}
+				metadataJson
 			})
 			.returning({ id: items.id })
 	)
