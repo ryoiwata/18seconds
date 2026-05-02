@@ -30,22 +30,35 @@ const EXPLAIN_MODEL = "claude-sonnet-4-6"
 
 // ---------------------------------------------------------------------------
 // Sub-type style hints (one entry per v1 sub-type, drafted from
-// docs/CCAT-categories.md). Populated in Step 5; left empty here so the
-// skeleton compiles and the redline is reviewable as a separate commit.
+// docs/CCAT-categories.md). Each entry pairs a recognition cue with the
+// fastest method. Trap-avoidance is intentionally NOT in here — the
+// unified-explanation prompt's optional third sentence handles per-question
+// traps.
 // ---------------------------------------------------------------------------
 
 const subTypeStyleHints: Record<SubTypeId, string> = {
-	"verbal.synonyms": "",
-	"verbal.antonyms": "",
-	"verbal.analogies": "",
-	"verbal.sentence_completion": "",
-	"verbal.logic": "",
-	"numerical.number_series": "",
-	"numerical.letter_series": "",
-	"numerical.word_problems": "",
-	"numerical.fractions": "",
-	"numerical.percentages": "",
-	"numerical.averages_ratios": ""
+	"verbal.synonyms":
+		"Recognition is fast or absent — if the test-taker doesn't know the word, deliberation rarely helps. Frame the explanation around the word's core sense.",
+	"verbal.antonyms":
+		"When two options point opposite, the more general opposite usually wins. Watch for words with multiple meanings keyed to the less obvious sense.",
+	"verbal.analogies":
+		"Name the relationship in plain words ('puppy is a young dog') before scanning options — articulating it filters distractors. Common relationship types: function, part-to-whole, category-to-member, intensity, synonymy.",
+	"verbal.sentence_completion":
+		"Read the conjunctions first ('although', 'because', 'despite') — they telegraph whether the blank agrees or contrasts with surrounding text. For double-blank questions, eliminate any option whose first word fails before evaluating the second.",
+	"verbal.logic":
+		"Treat the premises as a closed world — only what is stated counts, real-world knowledge does not enter. For spatial-direction problems, sketch a line; for syllogisms, the correct conclusion is the most modest claim that strictly follows.",
+	"numerical.number_series":
+		"Test consecutive differences first, then ratios, then second-order patterns (differences-of-differences). Check memorized sets (cubes, primes, squares) only after those fail; most series resolve at the first level.",
+	"numerical.letter_series":
+		"Convert letters to position numbers (A=1, B=2, …) when the pattern doesn't resolve at a glance, then apply number-series logic. For multi-letter groups, each position usually has its own arithmetic rule.",
+	"numerical.word_problems":
+		"Translate the prose into a single equation or sketch before computing — translation is the bottleneck, not the arithmetic. Most problems resolve to one or two operations once the relationship is named (rate × time, parts × cost, distance ÷ speed).",
+	"numerical.fractions":
+		"For 'highest value' questions where all fractions are close to 1, compare the remaining part to 1 (e.g. 14/15 leaves 1/15) — faster than direct comparison. Cross-multiply for two-fraction comparisons; don't compute decimals.",
+	"numerical.percentages":
+		"The 10% block trick is the fastest method: shift the decimal one place left, then scale. For stacked changes, anchor on the new base each step — a 50% increase then 50% decrease does not return to the start.",
+	"numerical.averages_ratios":
+		"Averages: sum-over-count works almost always; for add/remove problems, redistribute the delta from the mean rather than recomputing. Ratios: distinguish parts-to-parts from parts-to-whole — set up 7x + 9x = total for a 7:9 ratio."
 }
 
 // ---------------------------------------------------------------------------
