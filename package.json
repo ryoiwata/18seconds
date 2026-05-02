@@ -20,7 +20,8 @@
 		"db:push": "bun --bun run src/db/scripts/drizzle-kit-shim.ts push && bun run db:push:programs",
 		"db:push:programs": "bun --bun run src/db/scripts/push-programs.ts",
 		"db:studio": "bun --bun run src/db/scripts/drizzle-kit-shim.ts studio",
-		"db:drop:schema": "bun --bun run src/db/scripts/drop-schema.ts"
+		"db:drop:schema": "bun --bun run src/db/scripts/drop-schema.ts",
+		"db:seed": "bun --bun run src/db/scripts/seed-sub-types.ts && bun --bun run src/db/scripts/seed-strategies.ts"
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "0.92.0",
