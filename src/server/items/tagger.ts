@@ -61,8 +61,10 @@ async function classifyItem(prompt: string, options: string[]): Promise<TaggerRe
 		return FALLBACK
 	}
 
+	const stripped = stripCodeFences(text)
+
 	const json = errors.trySync(function parseJson() {
-		return JSON.parse(text)
+		return JSON.parse(stripped)
 	})
 	if (json.error) {
 		logger.warn(
@@ -82,6 +84,19 @@ async function classifyItem(prompt: string, options: string[]): Promise<TaggerRe
 	}
 
 	return parsed.data
+}
+
+const CODE_FENCE_REGEX = /^\s*```(?:json)?\s*\n?([\s\S]*?)\n?```\s*$/
+
+function stripCodeFences(raw: string): string {
+	const match = raw.match(CODE_FENCE_REGEX)
+	if (match) {
+		const captured = match[1]
+		if (captured !== undefined) {
+			return captured.trim()
+		}
+	}
+	return raw.trim()
 }
 
 function extractText(content: Anthropic.ContentBlock[]): string | undefined {
@@ -107,7 +122,7 @@ function buildSystemPrompt(): string {
 		"",
 		'Difficulty levels: "easy" (under 8s), "medium" (8–14s), "hard" (14–18s), "brutal" (over 18s).',
 		"",
-		"Respond with a single JSON object and nothing else:",
+		"Respond with raw JSON only — no markdown code fences, no commentary, just the object.",
 		'{"subTypeId": "<one of the 11 ids>", "difficulty": "easy|medium|hard|brutal", "confidence": <number from 0 to 1>}'
 	)
 	return lines.join("\n")
