@@ -15,9 +15,27 @@ const optionSchema = z.object({
 	text: z.string().min(1)
 })
 
+const explanationPartKind = z.enum(["recognition", "elimination", "tie-breaker"])
+const optionLetter = z.enum(["A", "B", "C", "D", "E"])
+
+const structuredExplanation = z.object({
+	parts: z
+		.array(
+			z.object({
+				kind: explanationPartKind,
+				text: z.string().min(1),
+				referencedOptions: z.array(optionLetter)
+			})
+		)
+		.length(3)
+})
+
+type StructuredExplanation = z.infer<typeof structuredExplanation>
+
 const ingestMetadata = z.object({
 	originalExplanation: z.string().min(1).optional(),
-	importSource: z.string().min(1).max(64).optional()
+	importSource: z.string().min(1).max(64).optional(),
+	structuredExplanation: structuredExplanation.optional()
 })
 
 const ingestInput = z.object({
@@ -42,6 +60,7 @@ interface IngestRealItemInput {
 	metadata?: {
 		originalExplanation?: string
 		importSource?: string
+		structuredExplanation?: StructuredExplanation
 	}
 }
 
@@ -74,12 +93,19 @@ async function ingestRealItem(input: IngestRealItemInput): Promise<{ itemId: str
 		throw errors.wrap(ErrIngestValidation, "correctAnswer not in options")
 	}
 
-	const metadataJson: Record<string, string> = {}
+	const metadataJson: {
+		originalExplanation?: string
+		importSource?: string
+		structuredExplanation?: StructuredExplanation
+	} = {}
 	if (data.metadata?.originalExplanation) {
 		metadataJson.originalExplanation = data.metadata.originalExplanation
 	}
 	if (data.metadata?.importSource) {
 		metadataJson.importSource = data.metadata.importSource
+	}
+	if (data.metadata?.structuredExplanation) {
+		metadataJson.structuredExplanation = data.metadata.structuredExplanation
 	}
 
 	const insertResult = await errors.try(
