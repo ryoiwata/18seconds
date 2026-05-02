@@ -29,7 +29,7 @@ const SOLVE_MODEL = "claude-sonnet-4-6"
 const VERIFY_MODEL = "claude-sonnet-4-6"
 const EXPLAIN_MODEL = "claude-sonnet-4-6"
 
-const EXTRACT_MAX_TOKENS = 1024
+const EXTRACT_MAX_TOKENS = 2048
 const SOLVE_MAX_TOKENS = 512
 const VERIFY_MAX_TOKENS = 512
 const EXPLAIN_MAX_TOKENS = 512
@@ -165,19 +165,7 @@ Important conventions of CCAT screenshots:
 - Synonyms/antonyms questions in the CCAT convention put the target word in ALL CAPS (e.g. "Choose the word that most nearly means HAPPY.").
 - Set "isTextOnly": false if ANY of the answer choices is a chart, shape, image, or visual diagram. Set it true only if the entire question and every option is plain text.
 
-Respond with raw JSON only — no markdown code fences, no commentary, just the object. Use this exact shape:
-
-{
-  "isTextOnly": <bool>,
-  "question": <string, the prompt text verbatim>,
-  "options": [{ "id": "A"|"B"|"C"|"D"|"E", "text": <string> }, ...],
-  "answerVisible": <bool>,
-  "correctAnswer": "A"|"B"|"C"|"D"|"E",      // only if answerVisible
-  "explanationVisible": <bool>,
-  "originalExplanation": <string>,            // only if explanationVisible (verbatim from screenshot)
-  "subTypeId": <one of the 11 ids above>,
-  "difficulty": "easy"|"medium"|"hard"|"brutal"
-}`
+Call the extract_ccat_question tool with the question's structured content. The tool's input_schema defines every field name and type — populate every required field, and only include "correctAnswer" / "originalExplanation" when their corresponding visibility flag is true.`
 
 const SOLVE_SYSTEM = `You are solving a single CCAT (Criteria Cognitive Aptitude Test) multiple-choice question. Your job is to identify the correct option. Your reasoning will be checked by an independent verifier.
 
@@ -328,6 +316,82 @@ interface ExtractFailure {
 	error: string
 }
 
+// Anthropic tool definition for the extract pass. Forcing tool_choice to this
+// tool guarantees the model returns a `tool_use` content block whose `input` is
+// a parsed JS object — no JSON.parse step, no fence-stripping, no string-escape
+// pitfalls. The `extractedItem` Zod schema below still runs on the parsed
+// object to enforce the conditional refines (answerVisible↔correctAnswer,
+// explanationVisible↔originalExplanation) that JSON Schema can't express
+// cleanly on its own.
+const EXTRACT_TOOL_NAME = "extract_ccat_question"
+const EXTRACT_TOOL: Anthropic.Messages.Tool = {
+	name: EXTRACT_TOOL_NAME,
+	description:
+		"Return the CCAT question's extracted content as structured fields. Populate every required field. Only set correctAnswer when answerVisible is true. Only set originalExplanation when explanationVisible is true.",
+	input_schema: {
+		type: "object",
+		properties: {
+			isTextOnly: {
+				type: "boolean",
+				description:
+					"false if any answer choice (or the question itself) is a chart, shape, image, or visual diagram"
+			},
+			question: {
+				type: "string",
+				description: "the question prompt text verbatim from the screenshot"
+			},
+			options: {
+				type: "array",
+				minItems: 2,
+				maxItems: 5,
+				items: {
+					type: "object",
+					properties: {
+						id: { type: "string", enum: ["A", "B", "C", "D", "E"] },
+						text: { type: "string" }
+					},
+					required: ["id", "text"]
+				}
+			},
+			answerVisible: {
+				type: "boolean",
+				description:
+					"true when a checkmark, highlight, 'Correct answer: X' line, or '✓' marks the correct option"
+			},
+			correctAnswer: {
+				type: "string",
+				enum: ["A", "B", "C", "D", "E"],
+				description: "set ONLY when answerVisible is true"
+			},
+			explanationVisible: {
+				type: "boolean",
+				description: "true when a written explanation is shown below the question"
+			},
+			originalExplanation: {
+				type: "string",
+				description: "verbatim from the screenshot. set ONLY when explanationVisible is true"
+			},
+			subTypeId: {
+				type: "string",
+				enum: [...subTypeIds]
+			},
+			difficulty: {
+				type: "string",
+				enum: ["easy", "medium", "hard", "brutal"]
+			}
+		},
+		required: [
+			"isTextOnly",
+			"question",
+			"options",
+			"answerVisible",
+			"explanationVisible",
+			"subTypeId",
+			"difficulty"
+		]
+	}
+}
+
 async function extractFromImage(imagePath: string): Promise<ExtractResult | ExtractFailure> {
 	const buf = await Bun.file(imagePath).arrayBuffer()
 	const b64 = Buffer.from(buf).toString("base64")
@@ -342,6 +406,8 @@ async function extractFromImage(imagePath: string): Promise<ExtractResult | Extr
 				max_tokens: EXTRACT_MAX_TOKENS,
 				temperature: 0,
 				system,
+				tools: [EXTRACT_TOOL],
+				tool_choice: { type: "tool", name: EXTRACT_TOOL_NAME },
 				messages: [
 					{
 						role: "user",
@@ -350,7 +416,10 @@ async function extractFromImage(imagePath: string): Promise<ExtractResult | Extr
 								type: "image",
 								source: { type: "base64", media_type: "image/png", data: b64 }
 							},
-							{ type: "text", text: "Extract this CCAT question." }
+							{
+								type: "text",
+								text: `Extract this CCAT question by calling the ${EXTRACT_TOOL_NAME} tool.`
+							}
 						]
 					}
 				]
@@ -360,40 +429,36 @@ async function extractFromImage(imagePath: string): Promise<ExtractResult | Extr
 		return { ok: false, stage: "extract", rawOutput: "", error: errorToString(err) }
 	}
 
-	const text = extractTextBlock(message.content)
-	if (!text) {
-		return {
-			ok: false,
-			stage: "extract",
-			rawOutput: "",
-			error: "no text block in extract response"
+	let toolInput: unknown
+	for (const block of message.content) {
+		if (block.type === "tool_use" && block.name === EXTRACT_TOOL_NAME) {
+			toolInput = block.input
+			break
 		}
 	}
 
-	const stripped = stripCodeFences(text)
-	let json: unknown
-	try {
-		json = JSON.parse(stripped)
-	} catch (err) {
+	if (toolInput === undefined) {
 		return {
 			ok: false,
 			stage: "extract",
-			rawOutput: text,
-			error: `JSON parse failed: ${errorToString(err)}`
+			rawOutput: JSON.stringify(message.content),
+			error: `no ${EXTRACT_TOOL_NAME} tool_use block in response`
 		}
 	}
 
-	const parsed = extractedItem.safeParse(json)
+	const rawOutput = JSON.stringify(toolInput)
+
+	const parsed = extractedItem.safeParse(toolInput)
 	if (!parsed.success) {
 		return {
 			ok: false,
 			stage: "extract",
-			rawOutput: text,
+			rawOutput,
 			error: `Zod validation failed: ${JSON.stringify(parsed.error.issues)}`
 		}
 	}
 
-	return { ok: true, data: parsed.data, rawOutput: text }
+	return { ok: true, data: parsed.data, rawOutput }
 }
 
 function formatOptionsBlock(options: { id: string; text: string }[]): string {
