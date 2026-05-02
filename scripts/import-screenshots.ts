@@ -169,29 +169,17 @@ Call the extract_ccat_question tool with the question's structured content. The 
 
 const SOLVE_SYSTEM = `You are solving a single CCAT (Criteria Cognitive Aptitude Test) multiple-choice question. Your job is to identify the correct option. Your reasoning will be checked by an independent verifier.
 
-Respond with raw JSON only — no markdown code fences, no commentary, just the object:
-
-{
-  "correctAnswer": "A"|"B"|"C"|"D"|"E",
-  "reasoning": <2–4 sentence explanation of your method, used for verification>,
-  "confidence": <integer 1–5, where 5 = certain and 1 = guess>
-}`
+Call the submit_solver_answer tool with your chosen option, your reasoning (2–4 sentences explaining your method, used downstream by the verifier), and your confidence (1–5).`
 
 const VERIFY_SYSTEM = `You are an independent verifier for CCAT (Criteria Cognitive Aptitude Test) answers. You will be given a question, the answer options, and another solver's claimed answer + reasoning.
 
 Your protocol:
 1. Solve the question yourself first, BEFORE looking at the claim. Pick the option you would choose.
-2. Then read the claim. If the claim's answer matches yours AND the claim's reasoning is sound (no obvious errors), set "agrees": true.
-3. If the claim's answer does not match yours, set "agrees": false, put your answer in "correctIfDisagree", and explain the discrepancy in "reason" in 1–2 sentences.
-4. If the claim's answer matches yours but its reasoning has a clear error (e.g. arithmetic mistake masked by a coincidentally correct option), set "agrees": false and explain in "reason".
+2. Then read the claim. If the claim's answer matches yours AND the claim's reasoning is sound (no obvious errors), set agrees=true.
+3. If the claim's answer does not match yours, set agrees=false, put your answer in correctIfDisagree, and explain the discrepancy in reason in 1–2 sentences.
+4. If the claim's answer matches yours but its reasoning has a clear error (e.g. arithmetic mistake masked by a coincidentally correct option), set agrees=false and explain in reason.
 
-Respond with raw JSON only — no markdown code fences, no commentary, just the object:
-
-{
-  "agrees": <bool>,
-  "correctIfDisagree": "A"|"B"|"C"|"D"|"E",  // only if agrees=false
-  "reason": <string>                          // only if agrees=false
-}`
+Call the submit_verifier_judgment tool with your verdict.`
 
 const EXPLAIN_SYSTEM_TEMPLATE = `You are writing a post-session-review explanation for a CCAT (Criteria Cognitive Aptitude Test) multiple-choice question. The user has already attempted the question; they are now reviewing what they got wrong (or got slowly). Your explanation is what they read.
 
@@ -465,6 +453,34 @@ function formatOptionsBlock(options: { id: string; text: string }[]): string {
 	return options.map((o) => `${o.id}. ${o.text}`).join("\n")
 }
 
+// Solver tool. Same rationale as the extract tool: forced tool_choice
+// guarantees the model returns a parsed JS object, eliminating the
+// prose-preamble class of failures (q21 letter-series question hit this in
+// text mode) without a regex pre-parser.
+const SOLVE_TOOL_NAME = "submit_solver_answer"
+const SOLVE_TOOL: Anthropic.Messages.Tool = {
+	name: SOLVE_TOOL_NAME,
+	description:
+		"Submit your answer for the CCAT question along with reasoning and confidence. Reasoning is consumed by the downstream verifier and should make the method check-able.",
+	input_schema: {
+		type: "object",
+		properties: {
+			correctAnswer: { type: "string", enum: ["A", "B", "C", "D", "E"] },
+			reasoning: {
+				type: "string",
+				description: "2–4 sentences naming the method used"
+			},
+			confidence: {
+				type: "integer",
+				minimum: 1,
+				maximum: 5,
+				description: "5 = certain, 1 = guess"
+			}
+		},
+		required: ["correctAnswer", "reasoning", "confidence"]
+	}
+}
+
 async function solveQuestion(
 	question: string,
 	options: { id: string; text: string }[]
@@ -477,20 +493,54 @@ async function solveQuestion(
 			max_tokens: SOLVE_MAX_TOKENS,
 			temperature: 0,
 			system: SOLVE_SYSTEM,
+			tools: [SOLVE_TOOL],
+			tool_choice: { type: "tool", name: SOLVE_TOOL_NAME },
 			messages: [{ role: "user", content: userContent }]
 		})
 	)
 
-	const text = extractTextBlock(message.content)
-	if (!text) throw new Error("no text block in solve response")
+	let toolInput: unknown
+	for (const block of message.content) {
+		if (block.type === "tool_use" && block.name === SOLVE_TOOL_NAME) {
+			toolInput = block.input
+			break
+		}
+	}
+	if (toolInput === undefined) {
+		throw new Error(`no ${SOLVE_TOOL_NAME} tool_use block in solve response`)
+	}
 
-	const stripped = stripCodeFences(text)
-	const json = JSON.parse(stripped)
-	const parsed = solverOutput.safeParse(json)
+	const parsed = solverOutput.safeParse(toolInput)
 	if (!parsed.success) {
 		throw new Error(`solver Zod validation failed: ${JSON.stringify(parsed.error.issues)}`)
 	}
 	return parsed.data
+}
+
+// Verifier tool. Same migration rationale: avoid the same prose-preamble class
+// preemptively. Verify is structurally identical to solve in terms of failure
+// surface.
+const VERIFY_TOOL_NAME = "submit_verifier_judgment"
+const VERIFY_TOOL: Anthropic.Messages.Tool = {
+	name: VERIFY_TOOL_NAME,
+	description:
+		"Submit your verdict on the solver's claim. Set agrees=true if you arrived at the same answer with sound reasoning. Set agrees=false otherwise, fill in correctIfDisagree with the option YOU would pick, and explain the discrepancy in reason.",
+	input_schema: {
+		type: "object",
+		properties: {
+			agrees: { type: "boolean" },
+			correctIfDisagree: {
+				type: "string",
+				enum: ["A", "B", "C", "D", "E"],
+				description: "set ONLY when agrees is false"
+			},
+			reason: {
+				type: "string",
+				description: "set ONLY when agrees is false; 1–2 sentences explaining the discrepancy"
+			}
+		},
+		required: ["agrees"]
+	}
 }
 
 async function verifyAnswer(
@@ -517,16 +567,24 @@ async function verifyAnswer(
 			max_tokens: VERIFY_MAX_TOKENS,
 			temperature: 0,
 			system: VERIFY_SYSTEM,
+			tools: [VERIFY_TOOL],
+			tool_choice: { type: "tool", name: VERIFY_TOOL_NAME },
 			messages: [{ role: "user", content: userContent }]
 		})
 	)
 
-	const text = extractTextBlock(message.content)
-	if (!text) throw new Error("no text block in verify response")
+	let toolInput: unknown
+	for (const block of message.content) {
+		if (block.type === "tool_use" && block.name === VERIFY_TOOL_NAME) {
+			toolInput = block.input
+			break
+		}
+	}
+	if (toolInput === undefined) {
+		throw new Error(`no ${VERIFY_TOOL_NAME} tool_use block in verify response`)
+	}
 
-	const stripped = stripCodeFences(text)
-	const json = JSON.parse(stripped)
-	const parsed = verifierOutput.safeParse(json)
+	const parsed = verifierOutput.safeParse(toolInput)
 	if (!parsed.success) {
 		throw new Error(`verifier Zod validation failed: ${JSON.stringify(parsed.error.issues)}`)
 	}
