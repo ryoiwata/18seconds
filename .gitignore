@@ -67,3 +67,5 @@ Untitled
 *untitled*
 *Untitled*
 TODO.md
+# OCR import script run artefacts (idempotency log, failures, skipped, etc.)
+scripts/_logs/*.jsonl
