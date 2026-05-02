@@ -264,26 +264,8 @@ async function withBackoff<T>(label: string, fn: () => Promise<T>): Promise<T> {
 }
 
 // ---------------------------------------------------------------------------
-// Fence stripping (mirrors src/server/items/tagger.ts)
+// Helpers
 // ---------------------------------------------------------------------------
-
-const CODE_FENCE_REGEX = /^\s*```(?:json)?\s*\n?([\s\S]*?)\n?```\s*$/
-
-function stripCodeFences(raw: string): string {
-	const match = raw.match(CODE_FENCE_REGEX)
-	if (match) {
-		const captured = match[1]
-		if (captured !== undefined) return captured.trim()
-	}
-	return raw.trim()
-}
-
-function extractTextBlock(content: Anthropic.ContentBlock[]): string | undefined {
-	for (const block of content) {
-		if (block.type === "text") return block.text
-	}
-	return undefined
-}
 
 function errorToString(err: unknown): string {
 	if (err instanceof Error) return err.message
@@ -593,6 +575,24 @@ async function verifyAnswer(
 	return parsed.data
 }
 
+// Explain tool. Earlier rationale for skipping the explain migration —
+// "single-string outputs don't have a JSON-validity surface for commentary to
+// leak into" — was wrong. The JSON wrapper IS the surface; q21 hit the same
+// prose-preamble pattern. Tool-use eliminates it by construction.
+const EXPLAIN_TOOL_NAME = "submit_unified_explanation"
+const EXPLAIN_TOOL: Anthropic.Messages.Tool = {
+	name: EXPLAIN_TOOL_NAME,
+	description:
+		"Submit the unified post-session-review explanation as plain prose, following the contract in the system prompt.",
+	input_schema: {
+		type: "object",
+		properties: {
+			explanation: { type: "string" }
+		},
+		required: ["explanation"]
+	}
+}
+
 async function writeUnifiedExplanation(
 	question: string,
 	options: { id: string; text: string }[],
@@ -621,16 +621,24 @@ async function writeUnifiedExplanation(
 			max_tokens: EXPLAIN_MAX_TOKENS,
 			temperature: 0,
 			system,
+			tools: [EXPLAIN_TOOL],
+			tool_choice: { type: "tool", name: EXPLAIN_TOOL_NAME },
 			messages: [{ role: "user", content: userContent }]
 		})
 	)
 
-	const text = extractTextBlock(message.content)
-	if (!text) throw new Error("no text block in explain response")
+	let toolInput: unknown
+	for (const block of message.content) {
+		if (block.type === "tool_use" && block.name === EXPLAIN_TOOL_NAME) {
+			toolInput = block.input
+			break
+		}
+	}
+	if (toolInput === undefined) {
+		throw new Error(`no ${EXPLAIN_TOOL_NAME} tool_use block in explain response`)
+	}
 
-	const stripped = stripCodeFences(text)
-	const json = JSON.parse(stripped)
-	const parsed = unifiedExplanationOutput.safeParse(json)
+	const parsed = unifiedExplanationOutput.safeParse(toolInput)
 	if (!parsed.success) {
 		throw new Error(`explanation Zod validation failed: ${JSON.stringify(parsed.error.issues)}`)
 	}
