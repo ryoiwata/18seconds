@@ -24,7 +24,7 @@
 import "@/env"
 import * as errors from "@superbuilders/errors"
 import { eq } from "drizzle-orm"
-import { chromium } from "playwright-core"
+import { type Page, chromium } from "playwright-core"
 import { createAdminDb } from "@/db/admin"
 import { authSessions } from "@/db/schemas/auth/sessions"
 import { logger } from "@/logger"
@@ -78,6 +78,63 @@ interface SmokeOutput {
 	heartbeatCount: number
 	keyboardSelectsOption: boolean
 	pagehideBeaconFired: boolean
+	// Stress-check counters: after a single option select, fire 5
+	// rapid Enter presses within ~200ms. The submit-pending race fix
+	// requires `items submitted` to increment by exactly 1, not 5.
+	stressSubmitsBefore: number
+	stressSubmitsAfter: number
+	stressPressDurationMs: number
+}
+
+interface StressCheckResult {
+	stressSubmitsBefore: number
+	stressSubmitsAfter: number
+	stressPressDurationMs: number
+}
+
+async function readSubmittedCount(page: Page): Promise<number> {
+	const text = await page
+		.locator("aside[aria-label='smoke debug']")
+		.innerText()
+		.catch(function onErr() { return "" })
+	const match = text.match(/items submitted: (\d+)/)
+	if (match && match[1] !== undefined) {
+		return Number.parseInt(match[1], 10)
+	}
+	return 0
+}
+
+// Race-window stress check. Caller has already verified item visibility
+// and that the prior submit roundtrip landed (debug counter == 1). We
+// select an option, fire 5 Enter presses back-to-back inside ~200ms,
+// then read the counter again. With the submitPending fix in place,
+// the delta should be exactly 1; without it, the second/third/etc.
+// press lands during the await window and produces stale-snapshot
+// duplicates.
+async function runEnterSpamStressCheck(page: Page): Promise<StressCheckResult> {
+	await page.keyboard.press("1")
+	await page.waitForTimeout(150)
+	const stressSubmitsBefore = await readSubmittedCount(page)
+	const pressStart = Date.now()
+	for (let i = 0; i < 5; i++) {
+		await page.keyboard.press("Enter")
+	}
+	const stressPressDurationMs = Date.now() - pressStart
+	logger.info({ stressPressDurationMs }, "stress: 5 enter presses dispatched")
+	// Allow the in-flight submit + advance to settle. The stub's
+	// onSubmitAttempt resolves synchronously in the next microtask;
+	// 600ms is plenty of headroom.
+	await page.waitForTimeout(600)
+	const stressSubmitsAfter = await readSubmittedCount(page)
+	logger.info(
+		{
+			stressSubmitsBefore,
+			stressSubmitsAfter,
+			delta: stressSubmitsAfter - stressSubmitsBefore
+		},
+		"stress: post-spam debug card"
+	)
+	return { stressSubmitsBefore, stressSubmitsAfter, stressPressDurationMs }
 }
 
 async function runSmoke(): Promise<SmokeOutput> {
@@ -160,6 +217,18 @@ async function runSmoke(): Promise<SmokeOutput> {
 		logger.info({ debugText, firstSubmitLatencyMs }, "post-submit debug card")
 	}
 
+	// Race-window stress check — extracted to runEnterSpamStressCheck()
+	// so this function stays under biome's cognitive-complexity budget.
+	let stressSubmitsBefore = 0
+	let stressSubmitsAfter = 0
+	let stressPressDurationMs = 0
+	if (firstItemVisible && submitsLogged === 1) {
+		const stressResult = await runEnterSpamStressCheck(page)
+		stressSubmitsBefore = stressResult.stressSubmitsBefore
+		stressSubmitsAfter = stressResult.stressSubmitsAfter
+		stressPressDurationMs = stressResult.stressPressDurationMs
+	}
+
 	// Triage check — wait past the 18s per-question target while leaving
 	// the current item alone (do NOT click submit/options between rounds).
 	// The triage prompt overlay should appear and stay (no auto-submit).
@@ -212,7 +281,10 @@ async function runSmoke(): Promise<SmokeOutput> {
 		firstSubmitLatencyMs,
 		heartbeatCount: heartbeatRequests.length,
 		keyboardSelectsOption,
-		pagehideBeaconFired
+		pagehideBeaconFired,
+		stressSubmitsBefore,
+		stressSubmitsAfter,
+		stressPressDurationMs
 	}
 }
 
@@ -232,7 +304,10 @@ async function main(): Promise<void> {
 		firstSubmitLatencyMs,
 		heartbeatCount,
 		keyboardSelectsOption,
-		pagehideBeaconFired
+		pagehideBeaconFired,
+		stressSubmitsBefore,
+		stressSubmitsAfter,
+		stressPressDurationMs
 	} = result.data
 	logger.info(
 		{
@@ -243,6 +318,9 @@ async function main(): Promise<void> {
 			triageAppeared: result.data.triageAppeared,
 			keyboardSelectsOption,
 			pagehideBeaconFired,
+			stressSubmitsBefore,
+			stressSubmitsAfter,
+			stressPressDurationMs,
 			errorCount: errs.length,
 			screenshotPath
 		},
@@ -251,6 +329,12 @@ async function main(): Promise<void> {
 	for (const e of errs) {
 		logger.error({ type: e.type, text: e.text }, "console error captured")
 	}
+	// The 5-Enter spam should produce exactly ONE additional submit.
+	// stressSubmitsBefore should be 1 (from the earlier roundtrip) and
+	// stressSubmitsAfter should be exactly 2. If the race window were
+	// open, this would land somewhere between 2 and 6.
+	const stressDelta = stressSubmitsAfter - stressSubmitsBefore
+	const stressOk = stressSubmitsBefore === 1 && stressSubmitsAfter === 2 && stressPressDurationMs <= 200
 	const ok =
 		firstItemVisible &&
 		submitsLogged === 1 &&
@@ -265,9 +349,14 @@ async function main(): Promise<void> {
 		// Keyboard 1 selects an option (aria-pressed flips).
 		keyboardSelectsOption &&
 		// pagehide listener fires a final beacon on close.
-		pagehideBeaconFired
+		pagehideBeaconFired &&
+		// Race-window stress check: 5 Enter presses → 1 submit.
+		stressOk
 	if (!ok) {
-		logger.error("smoke FAILED")
+		logger.error(
+			{ stressSubmitsBefore, stressSubmitsAfter, stressDelta, stressPressDurationMs },
+			"smoke FAILED"
+		)
 		process.exit(1)
 	}
 	logger.info("smoke PASSED")

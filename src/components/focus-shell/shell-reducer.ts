@@ -46,8 +46,12 @@ interface ShellState {
 	diagnosticOvertimeNoteShown: boolean
 	diagnosticOvertimeNoteVisibleUntilMs?: number
 	// One-shot flag set by `submit` and consumed by the FocusShell
-	// component to invoke onSubmitAttempt asynchronously. Cleared by
-	// `submit_started`.
+	// component to invoke onSubmitAttempt asynchronously. Cleared ONLY
+	// by `set_question_started` — i.e., when the next item's <ItemSlot>
+	// mounts and dispatches the latency anchor. The mid-await
+	// `submit_started` action does NOT clear it; otherwise a fast user
+	// pressing Enter twice within the await window would dispatch a
+	// second submit against the same (now-stale) item snapshot.
 	submitPending: boolean
 }
 
@@ -163,6 +167,9 @@ function reduceTriageTake(
 	// same `tick` action stream. Reserved for future use where the
 	// component might want to override the elapsed comparison.
 	void action
+	// Idempotent against an in-flight submit, same rationale as the
+	// `submit` action's guard above.
+	if (state.submitPending) return state
 	let triageTakenInWindow = state.triageTaken
 	if (
 		state.triagePromptFired &&
@@ -184,9 +191,12 @@ function reduceTriageTake(
 }
 
 function reduceSubmitStarted(state: ShellState): ShellState {
+	// Note: submitPending stays true here. The flag only clears when the
+	// next item's <ItemSlot> mounts and dispatches set_question_started.
+	// This is what closes the race window where a fast Enter press would
+	// double-submit during the onSubmitAttempt await.
 	return {
 		...state,
-		submitPending: false,
 		interQuestionVisible: true,
 		interQuestionVisibleUntilMs: state.elapsedSessionMs + INTER_QUESTION_FADE_MS * 4
 	}
@@ -242,12 +252,24 @@ function reduceOvertimeNoteShown(state: ShellState): ShellState {
 // handled by the outer reducer (it needs ctx), so neither half sees it.
 function dispatchPrimary(state: ShellState, action: ShellAction): ShellState | undefined {
 	if (action.kind === "select") return { ...state, selectedOptionId: action.optionId }
-	if (action.kind === "submit") return { ...state, submitPending: true }
+	if (action.kind === "submit") {
+		// Idempotent: if a submit is already in flight, don't bump the
+		// reference (also avoids unnecessary re-renders). The dispatch-
+		// site guard in <FocusShell> is the primary defense; this is
+		// belt-and-suspenders.
+		if (state.submitPending) return state
+		return { ...state, submitPending: true }
+	}
 	if (action.kind === "triage_take") return reduceTriageTake(state, action)
 	if (action.kind === "submit_started") return reduceSubmitStarted(state)
 	if (action.kind === "advance") return reduceAdvance(state, action.next)
 	if (action.kind === "set_question_started") {
-		return { ...state, questionStartedAtMs: action.nowMs, elapsedQuestionMs: 0 }
+		return {
+			...state,
+			questionStartedAtMs: action.nowMs,
+			elapsedQuestionMs: 0,
+			submitPending: false
+		}
 	}
 	return undefined
 }

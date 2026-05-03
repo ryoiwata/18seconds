@@ -180,6 +180,11 @@ function FocusShell(props: FocusShellProps) {
 
 	// Keyboard handler for `T` (triage take) and `Enter` (submit).
 	// 1–5 / A–E are handled by <ItemPrompt>'s own keydown listener.
+	//
+	// Both handlers early-return if a submit is already in flight (read
+	// from stateRef so the listener doesn't need to re-attach on every
+	// render). The reducer also guards against double-submit, but doing
+	// it here too means we don't even queue a redundant action.
 	React.useEffect(function attachKeyboard() {
 		function onKey(event: KeyboardEvent) {
 			const target = event.target
@@ -187,15 +192,16 @@ function FocusShell(props: FocusShellProps) {
 				return
 			}
 			const key = event.key
-			if (key === "T" || key === "t") {
-				event.preventDefault()
+			const isTriage = key === "T" || key === "t"
+			const isEnter = key === "Enter"
+			if (!isTriage && !isEnter) return
+			event.preventDefault()
+			if (stateRef.current.submitPending) return
+			if (isTriage) {
 				dispatch({ kind: "triage_take", nowMs: performance.now() })
 				return
 			}
-			if (key === "Enter") {
-				event.preventDefault()
-				dispatch({ kind: "submit", nowMs: performance.now() })
-			}
+			dispatch({ kind: "submit", nowMs: performance.now() })
 		}
 		window.addEventListener("keydown", onKey)
 		return function detachKeyboard() {
@@ -274,6 +280,7 @@ function FocusShell(props: FocusShellProps) {
 				<div className="mt-8 flex justify-end">
 					<Button
 						onClick={function clickSubmit() {
+							if (state.submitPending) return
 							dispatch({ kind: "submit", nowMs: performance.now() })
 						}}
 						disabled={state.submitPending}
