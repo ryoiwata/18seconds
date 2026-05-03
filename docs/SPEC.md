@@ -228,7 +228,7 @@ Add via `bun add`:
 
 ### Local Postgres image
 
-`pgvector/pgvector:pg16` (the standard `postgres:16` image does not include the extension). Pin this image in the Docker compose file so the local dev environment matches RDS. Same major version, same extensions (`pgcrypto`, `pgvector`), same default collation as the IaC-provisioned RDS instance.
+`pgvector/pgvector:pg18` (the standard `postgres:18` image does not include the extension). Pin this image in the Docker compose file so the local dev environment matches the IaC-provisioned RDS instance — same major version, same extensions (`pgcrypto`, `pgvector`), same default collation. Postgres 18 is required because the schema uses the native `uuidv7()` function as the default for primary-key columns; earlier majors do not ship it.
 
 ---
 
@@ -355,11 +355,11 @@ Three strategies per sub-type seeded from `src/config/strategies.ts`. The (`sub_
 | `source` | `pgEnum('item_source', ['real','generated'])` | `notNull` |
 | `status` | `pgEnum('item_status', ['live','candidate','retired'])` | `notNull`, `default 'candidate'` |
 | `body` | `jsonb` | `notNull` (Zod-validated discriminated union — §3.3.1) |
-| `options_json` | `jsonb` | `notNull` (`{ id: string; text: string }[]` — text-only in v1; `imageUrl?` is reserved for future visual sub-types) |
-| `correct_answer` | `varchar(64)` | `notNull` (matches an `option.id`) |
-| `explanation` | `text` | nullable |
+| `options_json` | `jsonb` | `notNull` (`{ id: string; text: string }[]` — `id` is an opaque 8-char Crockford-base32 string assigned server-side; see §3.3.2) |
+| `correct_answer` | `varchar(64)` | `notNull` (matches an `option.id`; regex-constrained to `^[0-9a-z]{8}$` at the route boundary) |
+| `explanation` | `text` | nullable (rendered prose; the canonical structured form lives in `metadata_json.structuredExplanation` — see §3.3.3) |
 | `strategy_id` | `uuid` | nullable, FK → `strategies.id` |
-| `embedding` | `vector(1536)` | nullable (set by `embeddingBackfillWorkflow`) |
+| `embedding` | `vector(1536)` | nullable (set by `embeddingBackfillWorkflow`, or by `scripts/backfill-missing-embeddings.ts` for items inserted via the seed loader) |
 | `metadata_json` | `jsonb` | `notNull`, `default '{}'` |
 
 Indexes:
@@ -367,7 +367,26 @@ Indexes:
 - `items_sub_type_difficulty_status_idx` on `(sub_type_id, difficulty, status)` — used by selection by tier.
 - `items_embedding_ivfflat_idx` on `embedding` using `ivfflat (embedding vector_cosine_ops) WITH (lists = 100)`.
 
-`metadata_json` shape (typed at the boundary, not enforced by the column): `{ templateId?, templateVersion?, generatorModel?, validatorReport?, qualityScore? }`.
+`metadata_json` shape (typed at the boundary, not enforced by the column):
+
+```ts
+{
+    // Phase 4 generation pipeline provenance.
+    templateId?: string
+    templateVersion?: number
+    generatorModel?: string
+    validatorReport?: { /* validator's per-check confidences and reasons */ }
+    qualityScore?: number
+
+    // Provenance for items entering the bank — set at ingest time.
+    importSource?: 'hand-seed' | 'ocr-visible' | 'ocr-solved' | 'generated'
+    originalExplanation?: string  // verbatim text from a source screenshot, when extracted by the OCR pipeline
+    sourceImageHash?: string       // SHA-256 of the source PNG; OCR-imported items only
+
+    // Structured form of the user-facing explanation. See §3.3.3.
+    structuredExplanation?: { parts: StructuredExplanationPart[] }
+}
+```
 
 ##### 3.3.1 `body` discriminator schema
 
@@ -385,6 +404,34 @@ const ItemBody = z.discriminatedUnion("kind", [BodyText])
 The renderer dispatches via `switch` over `body.kind` with TypeScript exhaustiveness checking; today it has one case. Generation pipeline output and admin ingest both validate via `ItemBody.safeParse` per `rules/zod-usage.md`.
 
 Image storage is deferred to a future version when visual sub-types are added; the items table schema does not currently include image references, and the body schema does not carry image keys. When that future version lands, additional variants (text_with_image, chart, grid, image_pair, image_pair_grid, column_matching) will be added to the union, and the renderer's switch will gain corresponding cases.
+
+##### 3.3.2 `options_json` shape — opaque ids
+
+Each option is `{ id: string; text: string }`, where `id` is an opaque 8-character string drawn from Crockford's base32 alphabet (`0-9` + lowercase consonants minus `i/l/o/u`). Ids are generated server-side at ingest time via `src/server/items/option-id.ts`'s `assignOptionIds` helper; the LLM (in either the OCR extract pass or the Phase 4 generator) returns options with text only and never sees ids.
+
+Display letters A/B/C/D/E are computed from array position at render time (see `src/components/item/option-button.tsx`'s `displayLabel` prop and `src/components/item/item-prompt.tsx`'s positional `String.fromCharCode(0x41 + index)`); they are **not stored**. Decoupling the stable handle (the opaque id) from the display label is what unlocks future per-session option shuffling and click-to-highlight in post-session review without breaking explanation cross-references when option order is permuted. See `docs/plans/opaque-option-ids-and-pipeline-split.md` for the full design rationale and the migration history.
+
+Validation: `src/server/items/ingest.ts`'s `optionSchema.id` is regex-constrained to `^[0-9a-z]{8}$`. The `correct_answer` column carries an opaque id matching one of `options_json[*].id`; the runtime cross-check in `ingestRealItem` enforces that match.
+
+##### 3.3.3 `metadata_json.structuredExplanation` shape
+
+Explanations live in two places that stay in lockstep: `items.explanation` carries the rendered prose the user reads, and `items.metadata_json.structuredExplanation` carries the canonical structured form. Prose is deterministically rendered from structure (see `scripts/_lib/explain.ts`'s `renderExplanationProse`); structure is the source of truth.
+
+```ts
+type StructuredExplanationPart = {
+    kind: 'recognition' | 'elimination' | 'tie-breaker'
+    text: string
+    referencedOptions: string[]  // option ids drawn from the row's options_json[*].id set
+}
+
+type StructuredExplanation = {
+    parts: StructuredExplanationPart[]  // length 2 or 3
+}
+```
+
+Zod refinement (in `src/server/items/ingest.ts` and `src/app/api/admin/ingest-item/route.ts`) enforces ordering: `parts[0].kind === 'recognition'`, `parts[1].kind === 'elimination'`, and `parts[2]?.kind === 'tie-breaker'` when present. The runtime cross-check in `ingestRealItem` enforces that every `referencedOptions[j]` exists in the item's `options_json[*].id` set.
+
+The structured form unlocks future click-to-highlight in post-session review (Phase 5/6): tapping a part's prose highlights the option ids it references via `referencedOptions`, with the renderer mapping opaque ids to current display positions. The data model is ready; the UI surface ships in a later phase. See `docs/plans/opaque-option-ids-and-pipeline-split.md` and `docs/plans/ocr-import-screenshots.md` for the contract design.
 
 #### `src/db/schemas/catalog/candidate_promotion_log.ts` — table `candidate_promotion_log`
 
@@ -532,6 +579,8 @@ const dbSchema = {
 
 `src/db/programs/extensions/pgvector.ts` follows the shape of `src/db/programs/extensions/pgcrypto.ts:4` and returns `sql\`CREATE EXTENSION IF NOT EXISTS vector\``. Added to the `programs` array in `src/db/programs/index.ts:14`, placed after `pgcrypto()` and before the `grant*ToAppUser()` calls so that the extension exists before grants execute.
 
+A one-shot migration at `scripts/migrate-opaque-option-ids.ts` rewrote every existing `items` row from letter-shaped option ids (A-E) to opaque base32 ids per §3.3.2 when the schema landed. Its rollback artifact is `scripts/_logs/migrate-opaque-ids.jsonl` (one JSON-per-line per migrated row, with the full letter-to-opaque map). The script is idempotent — re-runs detect already-migrated rows and skip. See `docs/plans/opaque-option-ids-and-pipeline-split.md` §3 for the playbook.
+
 ### 3.8 `src/db/lib/uuid-time.ts`
 
 Already exists per `rules/no-timestamp-columns.md`. Two helpers used throughout the SPEC:
@@ -592,6 +641,8 @@ interface ItemTemplate {
     schema: z.ZodTypeAny  // emits { body: { kind: "text", text }, options[], correctAnswer, explanation }
 }
 ```
+
+The LLM-facing `Option` schema is `{ text: string }` only — the model returns options with text and never invents ids. Server-side post-validation, `assignOptionIds` from `src/server/items/option-id.ts` assigns opaque base32 ids per §3.3.2 before the row is inserted. This matches the OCR ingest path's contract (extract pass also returns text-only options) so both pipelines flow through the same id-assignment seam.
 
 Templates are versioned so a regeneration run can be associated with a specific template version in `items.metadata_json.templateId`.
 
@@ -1163,9 +1214,40 @@ For each finalized session, enqueue `masteryRecomputeWorkflow(sessionId)`.
 | `src/app/api/cron/abandon-sweep/route.ts` | `GET` | Per-minute cron trigger. |
 | `src/app/api/cron/candidate-promotion/route.ts` | `GET` | Nightly cron trigger. |
 | `src/app/api/admin/generate-items/route.ts` | `POST` | Admin-gated wrapper around `triggerGenerationAction` for non-form callers. |
-| `src/app/api/admin/ingest-item/route.ts` | `POST` | Admin-gated wrapper around `ingestItemAction` for non-form callers. |
+| `src/app/api/admin/ingest-item/route.ts` | `POST` | Bearer-`CRON_SECRET`-gated wrapper around `ingestRealItem` — used by stage 2 of the OCR pipeline. See §7.14. |
 
-### 7.14 Error patterns
+### 7.14 `src/app/api/admin/ingest-item/route.ts` — admin item ingest
+
+Bearer-token-gated `POST` endpoint that stage 2 of the OCR pipeline (`scripts/generate-explanations.ts`) targets. Auth check: `Authorization: Bearer ${CRON_SECRET}` — reusing `CRON_SECRET` rather than a dedicated `ADMIN_API_TOKEN` is documented as a known compromise; introduce a separate token if other admin scripts adopt this route.
+
+Request body (Zod-validated by `requestSchema` in the route file):
+
+```ts
+{
+    subTypeId: SubTypeId
+    difficulty: 'easy' | 'medium' | 'hard' | 'brutal'
+    body: ItemBody          // discriminated union per §3.3.1
+    options: { id: string, text: string }[]   // id matches /^[0-9a-z]{8}$/, length 2..5
+    correctAnswer: string   // matches /^[0-9a-z]{8}$/, must equal one of options[*].id
+    explanation?: string
+    strategyId?: string     // uuid
+    metadata?: {
+        originalExplanation?: string
+        importSource?: string  // length 1..64
+        structuredExplanation?: { parts: StructuredExplanationPart[] }
+            // parts.length 2..3, ordered recognition → elimination → optional tie-breaker (Zod refinement)
+            // each parts[i].referencedOptions is z.array(z.string());
+            //   the runtime cross-check that every referenced id exists in options[*].id
+            //   lives in ingestRealItem (Zod cannot do cross-field validation).
+    }
+}
+```
+
+The route's behavior delegates to `ingestRealItem` from `src/server/items/ingest.ts`. On success returns `201 { itemId }`. On Zod failure returns `400` with the issues array. On internal failure returns `500` and logs the wrapped error.
+
+The route is the boundary that enforces the opaque-id regex (`^[0-9a-z]{8}$`) — letter-shaped ids fail at the Zod boundary before reaching `ingestRealItem`. See `docs/plans/opaque-option-ids-and-pipeline-split.md` §3.3 for the validation tightening history.
+
+### 7.15 Error patterns
 
 Every server action and API route follows `rules/error-handling.md`. Module-level error sentinels per `rules/no-extends-error.md`:
 
@@ -1673,7 +1755,13 @@ Six phases over a 2-week window. Each phase lists the files to create or modify 
 - `src/app/api/admin/ingest-item/route.ts` (NEW)
 - `src/server/generation/embeddings.ts` (NEW)
 - `src/workflows/embedding-backfill.ts` (NEW)
-- Hand-seed ~150 real items via the form, distributed across the 11 v1 sub-types. Validates the (single-variant) body discriminator end-to-end.
+- `src/server/items/option-id.ts` (NEW) — opaque base32 id generator (`generateOptionId`, `assignOptionIds`).
+- `src/db/seeds/items/{index,types,data/*}.ts` (NEW) — declarative seed dataset; data files emit `correctAnswerIndex: number` rather than letter ids; seed loader resolves index → opaque id at ingest time.
+- `scripts/migrate-opaque-option-ids.ts` (NEW) — one-shot migration that rewrote letter-shaped ids to opaque base32 ids on the existing dataset.
+- `scripts/import-questions.ts`, `scripts/generate-explanations.ts`, `scripts/regenerate-explanations.ts`, `scripts/_lib/{anthropic,extract,solve-verify,explain,sample,logs}.ts` (NEW) — three-stage OCR import pipeline.
+- `scripts/backfill-missing-embeddings.ts` (NEW) — populates `items.embedding` for rows inserted via the seed loader (which deliberately skips the workflow trigger).
+- Hand-seed 55 real items (5 per sub-type × 11 v1 sub-types) via the form. Then OCR-import additional items from CCAT practice-test screenshots via the four-pass pipeline at `scripts/import-questions.ts` + `scripts/generate-explanations.ts`. Validates the (single-variant) body discriminator end-to-end.
+- The opaque-option-id schema (§3.3.2) and the structured-explanation contract (§3.3.3) both shipped within Phase 2, in lockstep with the OCR pipeline. See `docs/plans/ocr-import-screenshots.md` and `docs/plans/opaque-option-ids-and-pipeline-split.md` for the design rationale and the migration history.
 
 ### Phase 3 — Practice surface (week 1, days 5–7)
 
