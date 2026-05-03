@@ -18,17 +18,31 @@ const optionSchema = z.object({
 const explanationPartKind = z.enum(["recognition", "elimination", "tie-breaker"])
 const optionLetter = z.enum(["A", "B", "C", "D", "E"])
 
-const structuredExplanation = z.object({
-	parts: z
-		.array(
-			z.object({
-				kind: explanationPartKind,
-				text: z.string().min(1),
-				referencedOptions: z.array(optionLetter)
-			})
-		)
-		.length(3)
-})
+const structuredExplanation = z
+	.object({
+		parts: z
+			.array(
+				z.object({
+					kind: explanationPartKind,
+					text: z.string().min(1),
+					referencedOptions: z.array(optionLetter)
+				})
+			)
+			.min(2)
+			.max(3)
+	})
+	.refine(
+		(d) => {
+			if (d.parts[0]?.kind !== "recognition") return false
+			if (d.parts[1]?.kind !== "elimination") return false
+			if (d.parts.length < 3) return true
+			return d.parts[2]?.kind === "tie-breaker"
+		},
+		{
+			message:
+				"parts must be in order: recognition, elimination, optional tie-breaker"
+		}
+	)
 
 type StructuredExplanation = z.infer<typeof structuredExplanation>
 

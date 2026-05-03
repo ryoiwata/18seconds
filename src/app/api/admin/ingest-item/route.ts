@@ -39,8 +39,21 @@ const requestSchema = z.object({
 								referencedOptions: z.array(z.enum(["A", "B", "C", "D", "E"]))
 							})
 						)
-						.length(3)
+						.min(2)
+						.max(3)
 				})
+				.refine(
+					(d) => {
+						if (d.parts[0]?.kind !== "recognition") return false
+						if (d.parts[1]?.kind !== "elimination") return false
+						if (d.parts.length < 3) return true
+						return d.parts[2]?.kind === "tie-breaker"
+					},
+					{
+						message:
+							"parts must be in order: recognition, elimination, optional tie-breaker"
+					}
+				)
 				.optional()
 		})
 		.optional()

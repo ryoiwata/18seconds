@@ -133,17 +133,30 @@ const verifierOutput = z
 
 type VerifierOutput = z.infer<typeof verifierOutput>
 
-const structuredExplanationOutput = z.object({
-	parts: z
-		.array(
-			z.object({
-				kind: z.enum(["recognition", "elimination", "tie-breaker"]),
-				text: z.string().min(1),
-				referencedOptions: z.array(z.enum(["A", "B", "C", "D", "E"]))
-			})
-		)
-		.length(3)
-})
+const structuredExplanationOutput = z
+	.object({
+		parts: z
+			.array(
+				z.object({
+					kind: z.enum(["recognition", "elimination", "tie-breaker"]),
+					text: z.string().min(1),
+					referencedOptions: z.array(z.enum(["A", "B", "C", "D", "E"]))
+				})
+			)
+			.min(2)
+			.max(3)
+	})
+	.refine(
+		(d) => {
+			if (d.parts[0]?.kind !== "recognition") return false
+			if (d.parts[1]?.kind !== "elimination") return false
+			if (d.parts.length < 3) return true
+			return d.parts[2]?.kind === "tie-breaker"
+		},
+		{
+			message: "parts must be in order: recognition, elimination, optional tie-breaker"
+		}
+	)
 
 type StructuredExplanationOutput = z.infer<typeof structuredExplanationOutput>
 
@@ -193,9 +206,9 @@ Call the submit_verifier_judgment tool with your verdict.`
 
 const EXPLAIN_SYSTEM_TEMPLATE = `You are writing a post-session-review explanation for a CCAT (Criteria Cognitive Aptitude Test) multiple-choice question. The user has already attempted the question; they are now reviewing items they got wrong (or got slowly).
 
-Your explanation models the internal monologue of a fast test-taker working through this problem in 15 seconds — recognize, eliminate, decide. The CCAT gives 18 seconds per question; the user does not have time for a derivation. They need three decision moves they can use on the next problem of the same kind.
+Your explanation models the internal monologue of a fast test-taker working through this problem in 15 seconds — recognize, eliminate, decide. The CCAT gives 18 seconds per question; the user does not have time for a derivation. They need two or three decision moves they can use on the next problem of the same kind.
 
-Call the submit_structured_explanation tool with exactly three parts in this order:
+Call the submit_structured_explanation tool with two or three parts in this order:
 
 1. RECOGNITION — Name the pattern type AND the first move a fast solver makes. ≤ 20 words. This is the only part with a hard length cap; recognition is a triage cue, not a sub-explanation, and going long here means the model is narrating structure instead of naming the move. Examples:
    - "Double-blank sentence-completion problem; solve the conjunction-locked blank first."
@@ -208,10 +221,14 @@ Call the submit_structured_explanation tool with exactly three parts in this ord
    - "Eliminate options describing substitution or movement; the answer must reverse acquisition itself, so 'replace' and 'pass' both go."
    referencedOptions: list the option ids your elimination rule cuts. If the rule cuts 'replace' and 'pass', return the ids of those options (not the words — look up the ids from the options array).
 
-3. TIE-BREAKER — The rule for picking between the final two options once eliminations are done. Often what would otherwise be framed as a "trap warning," reframed as a deciding move. Examples:
-   - "Between the remaining two, prefer 'sell' over 'pass' — antonyms reward reversing the core action, not naming a transfer."
+3. TIE-BREAKER (CONDITIONAL — see rule below) — When elimination leaves two or more plausibly-correct options, write a tie-breaker that names the rule for picking between them. Examples:
+   - "Between 'pass' and 'sell', prefer 'sell' — antonyms reward reversing the core action, not naming a transfer."
    - "Pick the first-word option that causally explains the effect; 'lengthy' causes drowsiness, while 'rambling' merely describes a quality."
-   referencedOptions: list the two option ids the tie-breaker is choosing between.
+   referencedOptions: list the option ids the tie-breaker is choosing between.
+
+When to OMIT the tie-breaker: if your elimination part cut every wrong option and a single correct option remains uncontested, do not emit a tie-breaker. Submit only two parts (recognition + elimination). A tie-breaker that "confirms" the answer is forbidden — if there is no real choice to make, the explanation is complete after elimination.
+
+The test for whether to emit a tie-breaker is "are there still two plausibly-correct options on the table after my elimination?" — NOT "are there options I didn't list in elimination's referencedOptions?" The user is fast-solving, not exhaustively eliminating; if your elimination decisively cuts all wrong options, that is a feature, not a gap.
 
 Hard rules:
 - When referring to an answer choice in the text, quote its text exactly (e.g., 'sell' or 'engaging') rather than paraphrasing. Do not invent paraphrases like "the transfer-flavored option."
@@ -606,7 +623,7 @@ const EXPLAIN_TOOL: Anthropic.Messages.Tool = {
 		properties: {
 			parts: {
 				type: "array",
-				minItems: 3,
+				minItems: 2,
 				maxItems: 3,
 				items: {
 					type: "object",
@@ -866,7 +883,7 @@ function parseArgs(argv: string[]): CliArgs | { help: true } {
 			}
 			limit = parsed
 			i++
-		} else if (arg && arg.startsWith("--")) {
+		} else if (arg?.startsWith("--")) {
 			console.error(`unknown flag: ${arg}`)
 			process.exit(1)
 		} else if (arg && !inboxDir) {
