@@ -43,6 +43,7 @@
 
 import * as errors from "@superbuilders/errors"
 import * as React from "react"
+import { playDong, playTick, unlockAudio } from "@/components/focus-shell/audio-ticker"
 import { Heartbeat } from "@/components/focus-shell/heartbeat"
 import { InterQuestionCard } from "@/components/focus-shell/inter-question-card"
 import { ItemSlot } from "@/components/focus-shell/item-slot"
@@ -200,6 +201,10 @@ function FocusShell(props: FocusShellProps) {
 			if (!stateRef.current.triagePromptFired) return
 			event.preventDefault()
 			if (stateRef.current.submitPending) return
+			// User interaction — unlock audio (idempotent) so the
+			// triage-take's potential dong-firing window has a live
+			// AudioContext.
+			unlockAudio()
 			dispatch({ kind: "triage_take", nowMs: performance.now() })
 		}
 		window.addEventListener("keydown", onKey)
@@ -207,6 +212,58 @@ function FocusShell(props: FocusShellProps) {
 			window.removeEventListener("keydown", onKey)
 		}
 	}, [])
+
+	// Audio ticker (commit 6 of the focus-shell UI overhaul). Plays a
+	// soft tick at every integer second strictly greater than half the
+	// per-question target, and a "dong" at the target. For an 18s
+	// target: ticks at seconds 10, 11, 12, 13, 14, 15, 16, 17 (eight
+	// total) and a dong at second 18. Audio is gated on
+	// `timerPrefs.questionTimerVisible` — if the per-question timer
+	// bar is hidden, the audio is off too.
+	//
+	// Implementation: cross-second detection via a ref-tracked previous
+	// integer-second elapsed value. The dong is double-guarded — the
+	// reducer's `dongPlayedForCurrentQuestion` flag is the canonical
+	// state, and a synchronous useRef prevents intra-render-batch
+	// double-fires (React might run the effect twice in the same batch
+	// before the dispatch lands).
+	const prevSecondRef = React.useRef<number>(-1)
+	const dongPlayedRef = React.useRef<boolean>(false)
+	const currentItemId = state.currentItem.id
+	React.useEffect(
+		function resetAudioOnItemAdvance() {
+			// `void currentItemId` registers the dependency for biome's
+			// exhaustive-deps check; the effect's actual job is to reset
+			// the audio-tracking refs whenever the item swaps, not to
+			// read the id value.
+			void currentItemId
+			prevSecondRef.current = -1
+			dongPlayedRef.current = false
+		},
+		[currentItemId]
+	)
+	React.useEffect(
+		function maybePlayAudio() {
+			if (!state.timerPrefs.questionTimerVisible) return
+			const secondsElapsed = Math.floor(state.elapsedQuestionMs / 1000)
+			if (secondsElapsed === prevSecondRef.current) return
+			const targetSec = props.perQuestionTargetMs / 1000
+			const halfSec = targetSec / 2
+			const start = prevSecondRef.current + 1
+			for (let s = start; s <= secondsElapsed; s += 1) {
+				if (s > halfSec && s < targetSec) {
+					playTick()
+				}
+				if (s >= targetSec && !dongPlayedRef.current) {
+					dongPlayedRef.current = true
+					playDong()
+					dispatch({ kind: "dong_played" })
+				}
+			}
+			prevSecondRef.current = secondsElapsed
+		},
+		[state.elapsedQuestionMs, state.timerPrefs.questionTimerVisible, props.perQuestionTargetMs]
+	)
 
 	const sessionDurationMs = props.sessionDurationMs
 
@@ -314,6 +371,9 @@ function FocusShell(props: FocusShellProps) {
 						item={state.currentItem}
 						selectedOptionId={state.selectedOptionId}
 						onSelectOption={function selectOption(optionId: string) {
+							// User interaction — unlock audio (idempotent) so any
+							// subsequent tick / dong fires can produce sound.
+							unlockAudio()
 							dispatch({ kind: "select", optionId })
 						}}
 						onMounted={function onItemMounted(nowMs: number) {
@@ -324,6 +384,12 @@ function FocusShell(props: FocusShellProps) {
 						type="button"
 						onClick={function clickSubmit() {
 							if (state.submitPending) return
+							// User interaction — unlock audio (idempotent). The
+							// blank-submit path (no option selected) is the only
+							// FocusShell entry where neither <ItemPrompt> nor the
+							// triage Space-press has fired first, so this is the
+							// late-binding unlock for that flow.
+							unlockAudio()
 							dispatch({ kind: "submit", nowMs: performance.now() })
 						}}
 						disabled={submitDisabled}
