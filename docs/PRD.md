@@ -110,14 +110,12 @@ Every answered question produces an attempt record:
 
 ### 3.1 Real-item ingest
 
-The seed bank is built from screenshots of actual CCAT items. The ingest flow is:
+The seed bank is built from screenshots of actual CCAT items, via two parallel ingest paths:
 
-1. A simple internal admin page accepts uploaded screenshots.
-2. The admin types in or pastes the question text, options, correct answer, and explanation. (No OCR required for v1; manual entry is fine.)
-3. An LLM call tags the sub-type and difficulty tier from the entered content. The admin can override before saving.
-4. The item is saved with `source: real`, `status: live`. An embedding is computed and stored.
+1. **Manual entry through an internal admin form.** The admin types or pastes the question text, options, correct answer, and explanation; an LLM call tags the sub-type and difficulty tier; the admin can override before saving. This path covers small batches and one-off items. Access is gated behind a hardcoded list of admin email addresses in `src/config/admins.ts`.
+2. **OCR pipeline for bulk ingest from screenshot folders.** A four-pass LLM pipeline (extract / solve / verify / explain) reads CCAT practice-test PNGs, classifies the sub-type and difficulty, recovers the answer key (either visible on the screenshot or computed via solve+verify), and synthesizes a triage-style explanation. Implemented as offline scripts (`scripts/import-questions.ts`, `scripts/generate-explanations.ts`). The same admin route is the write boundary, so the bank shape is identical regardless of which path the item came in through.
 
-This admin page is not exposed to end users. It does not need polish — a single form per item is sufficient. Access is gated behind a hardcoded list of admin email addresses in `src/config/admins.ts`.
+In both cases the item is saved with `source: real`, `status: live`, and an embedding is computed and stored. The admin page is not exposed to end users.
 
 ### 3.2 LLM item generation pipeline
 
