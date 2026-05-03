@@ -7,6 +7,8 @@ import { items } from "@/db/schemas/catalog/items"
 import { logger } from "@/logger"
 import { type IngestRealItemInput, ingestRealItem } from "@/server/items/ingest"
 import { seedDataBySubType } from "@/db/seeds/items/data"
+import type { SeedItemInput } from "@/db/seeds/items/types"
+import { assignOptionIds } from "@/server/items/option-id"
 
 const EMBEDDING_TIMEOUT_MS = 60_000
 const EMBEDDING_POLL_INTERVAL_MS = 1_000
@@ -30,26 +32,52 @@ async function existsByBodyText(text: string): Promise<boolean> {
 	return rows.length > 0
 }
 
-async function ingestOne(input: IngestRealItemInput): Promise<InsertedRow | SkippedRow> {
-	if (input.body.kind !== "text") {
+function toIngestInput(seed: SeedItemInput): IngestRealItemInput {
+	const optionsWithIds = assignOptionIds(seed.options)
+	const correctOption = optionsWithIds[seed.correctAnswerIndex]
+	if (!correctOption) {
+		logger.error(
+			{
+				subTypeId: seed.subTypeId,
+				correctAnswerIndex: seed.correctAnswerIndex,
+				optionCount: optionsWithIds.length
+			},
+			"seed: correctAnswerIndex out of range"
+		)
+		throw errors.new("seed: correctAnswerIndex out of range")
+	}
+	return {
+		subTypeId: seed.subTypeId,
+		difficulty: seed.difficulty,
+		body: seed.body,
+		options: optionsWithIds,
+		correctAnswer: correctOption.id,
+		explanation: seed.explanation,
+		strategyId: seed.strategyId
+	}
+}
+
+async function ingestOne(seed: SeedItemInput): Promise<InsertedRow | SkippedRow> {
+	if (seed.body.kind !== "text") {
 		// v1 has only the 'text' body variant; this guard exists so adding a
 		// future variant forces an update here rather than silently skipping.
-		logger.error({ subTypeId: input.subTypeId }, "seed: non-text body variants not supported")
+		logger.error({ subTypeId: seed.subTypeId }, "seed: non-text body variants not supported")
 		throw errors.new("seed: only text body variant supported in v1")
 	}
-	const exists = await existsByBodyText(input.body.text)
+	const exists = await existsByBodyText(seed.body.text)
 	if (exists) {
-		return { subTypeId: input.subTypeId, reason: "exists" }
+		return { subTypeId: seed.subTypeId, reason: "exists" }
 	}
+	const input = toIngestInput(seed)
 	const result = await errors.try(ingestRealItem(input))
 	if (result.error) {
 		logger.error(
-			{ error: result.error, subTypeId: input.subTypeId },
+			{ error: result.error, subTypeId: seed.subTypeId },
 			"seed: ingestRealItem failed"
 		)
 		throw errors.wrap(result.error, "seed ingestRealItem")
 	}
-	return { subTypeId: input.subTypeId, itemId: result.data.itemId }
+	return { subTypeId: seed.subTypeId, itemId: result.data.itemId }
 }
 
 async function waitForEmbeddings(): Promise<void> {

@@ -1,17 +1,17 @@
-import type { IngestRealItemInput } from "@/server/items/ingest"
+import type { SeedItemInput } from "@/db/seeds/items/types"
 
-const items: IngestRealItemInput[] = [
+const items: SeedItemInput[] = [
 	{
 		subTypeId: "numerical.letter_series",
 		difficulty: "easy",
 		body: { kind: "text", text: "What letter comes next? A, C, E, G, ___" },
 		options: [
-			{ id: "A", text: "H" },
-			{ id: "B", text: "I" },
-			{ id: "C", text: "J" },
-			{ id: "D", text: "K" }
+			{ text: "H" },
+			{ text: "I" },
+			{ text: "J" },
+			{ text: "K" }
 		],
-		correctAnswer: "B",
+		correctAnswerIndex: 1,
 		explanation: "Skip every other letter; G + 2 = I."
 	},
 	{
@@ -19,12 +19,12 @@ const items: IngestRealItemInput[] = [
 		difficulty: "easy",
 		body: { kind: "text", text: "What letter comes next? Z, X, V, T, ___" },
 		options: [
-			{ id: "A", text: "S" },
-			{ id: "B", text: "R" },
-			{ id: "C", text: "Q" },
-			{ id: "D", text: "P" }
+			{ text: "S" },
+			{ text: "R" },
+			{ text: "Q" },
+			{ text: "P" }
 		],
-		correctAnswer: "B",
+		correctAnswerIndex: 1,
 		explanation: "Decreasing alphabet by 2; T - 2 = R."
 	},
 	{
@@ -32,12 +32,12 @@ const items: IngestRealItemInput[] = [
 		difficulty: "medium",
 		body: { kind: "text", text: "What pair comes next? AZ, BY, CX, ___" },
 		options: [
-			{ id: "A", text: "DV" },
-			{ id: "B", text: "DW" },
-			{ id: "C", text: "EW" },
-			{ id: "D", text: "DX" }
+			{ text: "DV" },
+			{ text: "DW" },
+			{ text: "EW" },
+			{ text: "DX" }
 		],
-		correctAnswer: "B",
+		correctAnswerIndex: 1,
 		explanation: "First letter advances forward (A, B, C, D); second letter moves backward (Z, Y, X, W). Next pair: DW."
 	},
 	{
@@ -45,12 +45,12 @@ const items: IngestRealItemInput[] = [
 		difficulty: "medium",
 		body: { kind: "text", text: "What letter comes next? B, D, G, K, ___" },
 		options: [
-			{ id: "A", text: "M" },
-			{ id: "B", text: "N" },
-			{ id: "C", text: "O" },
-			{ id: "D", text: "P" }
+			{ text: "M" },
+			{ text: "N" },
+			{ text: "O" },
+			{ text: "P" }
 		],
-		correctAnswer: "D",
+		correctAnswerIndex: 3,
 		explanation: "Gaps grow by one: B(+2)D(+3)G(+4)K(+5)P. Next is P."
 	},
 	{
@@ -58,12 +58,12 @@ const items: IngestRealItemInput[] = [
 		difficulty: "hard",
 		body: { kind: "text", text: "What pair comes next? AB, DE, HI, MN, ___" },
 		options: [
-			{ id: "A", text: "RS" },
-			{ id: "B", text: "ST" },
-			{ id: "C", text: "TU" },
-			{ id: "D", text: "QR" }
+			{ text: "RS" },
+			{ text: "ST" },
+			{ text: "TU" },
+			{ text: "QR" }
 		],
-		correctAnswer: "B",
+		correctAnswerIndex: 1,
 		explanation: "Pairs are consecutive letter-pairs separated by gaps of 1, 2, 3, 4 letters. After MN, skip 4 (O, P, Q, R) to start at S → ST."
 	}
 ]

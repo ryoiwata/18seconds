@@ -1,17 +1,17 @@
-import type { IngestRealItemInput } from "@/server/items/ingest"
+import type { SeedItemInput } from "@/db/seeds/items/types"
 
-const items: IngestRealItemInput[] = [
+const items: SeedItemInput[] = [
 	{
 		subTypeId: "verbal.synonyms",
 		difficulty: "easy",
 		body: { kind: "text", text: "Choose the word that most nearly means HAPPY." },
 		options: [
-			{ id: "A", text: "joyful" },
-			{ id: "B", text: "anxious" },
-			{ id: "C", text: "tired" },
-			{ id: "D", text: "angry" }
+			{ text: "joyful" },
+			{ text: "anxious" },
+			{ text: "tired" },
+			{ text: "angry" }
 		],
-		correctAnswer: "A",
+		correctAnswerIndex: 0,
 		explanation: "'Joyful' is the closest synonym for HAPPY among the options."
 	},
 	{
@@ -19,12 +19,12 @@ const items: IngestRealItemInput[] = [
 		difficulty: "easy",
 		body: { kind: "text", text: "Choose the word that most nearly means LARGE." },
 		options: [
-			{ id: "A", text: "narrow" },
-			{ id: "B", text: "enormous" },
-			{ id: "C", text: "shallow" },
-			{ id: "D", text: "delicate" }
+			{ text: "narrow" },
+			{ text: "enormous" },
+			{ text: "shallow" },
+			{ text: "delicate" }
 		],
-		correctAnswer: "B",
+		correctAnswerIndex: 1,
 		explanation: "'Enormous' is the closest synonym for LARGE."
 	},
 	{
@@ -32,12 +32,12 @@ const items: IngestRealItemInput[] = [
 		difficulty: "medium",
 		body: { kind: "text", text: "Choose the word that most nearly means CANDID." },
 		options: [
-			{ id: "A", text: "secretive" },
-			{ id: "B", text: "frank" },
-			{ id: "C", text: "indirect" },
-			{ id: "D", text: "polite" }
+			{ text: "secretive" },
+			{ text: "frank" },
+			{ text: "indirect" },
+			{ text: "polite" }
 		],
-		correctAnswer: "B",
+		correctAnswerIndex: 1,
 		explanation: "'Candid' means open and honest; 'frank' is the closest match."
 	},
 	{
@@ -45,12 +45,12 @@ const items: IngestRealItemInput[] = [
 		difficulty: "medium",
 		body: { kind: "text", text: "Choose the word that most nearly means PRUDENT." },
 		options: [
-			{ id: "A", text: "reckless" },
-			{ id: "B", text: "wasteful" },
-			{ id: "C", text: "cautious" },
-			{ id: "D", text: "boastful" }
+			{ text: "reckless" },
+			{ text: "wasteful" },
+			{ text: "cautious" },
+			{ text: "boastful" }
 		],
-		correctAnswer: "C",
+		correctAnswerIndex: 2,
 		explanation: "'Prudent' means showing care and thought; 'cautious' is the closest synonym."
 	},
 	{
@@ -58,12 +58,12 @@ const items: IngestRealItemInput[] = [
 		difficulty: "hard",
 		body: { kind: "text", text: "Choose the word that most nearly means LACONIC." },
 		options: [
-			{ id: "A", text: "verbose" },
-			{ id: "B", text: "concise" },
-			{ id: "C", text: "earnest" },
-			{ id: "D", text: "decorative" }
+			{ text: "verbose" },
+			{ text: "concise" },
+			{ text: "earnest" },
+			{ text: "decorative" }
 		],
-		correctAnswer: "B",
+		correctAnswerIndex: 1,
 		explanation: "'Laconic' means using few words; 'concise' is the closest synonym."
 	}
 ]

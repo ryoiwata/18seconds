@@ -1,5 +1,5 @@
 import type { SubTypeId } from "@/config/sub-types"
-import type { IngestRealItemInput } from "@/server/items/ingest"
+import type { SeedItemInput } from "@/db/seeds/items/types"
 import { items as numericalAveragesRatios } from "@/db/seeds/items/data/numerical-averages-ratios"
 import { items as numericalFractions } from "@/db/seeds/items/data/numerical-fractions"
 import { items as numericalLetterSeries } from "@/db/seeds/items/data/numerical-letter-series"
@@ -12,7 +12,7 @@ import { items as verbalLogic } from "@/db/seeds/items/data/verbal-logic"
 import { items as verbalSentenceCompletion } from "@/db/seeds/items/data/verbal-sentence-completion"
 import { items as verbalSynonyms } from "@/db/seeds/items/data/verbal-synonyms"
 
-const seedDataBySubType: Record<SubTypeId, IngestRealItemInput[]> = {
+const seedDataBySubType: Record<SubTypeId, SeedItemInput[]> = {
 	"verbal.synonyms": verbalSynonyms,
 	"verbal.antonyms": verbalAntonyms,
 	"verbal.analogies": verbalAnalogies,
