@@ -4,14 +4,54 @@
 // raw Bun without Next.js context, which is what the commit-1 smoke does.
 //
 // SPEC §7.1 / Plan §6.1 (diagnostic) and §6.4 (drill).
+//
+// Idempotency on in-progress sessions:
+// Before inserting a new practice_sessions row, look up an existing
+// in-progress session for the same `(user_id, type, sub_type_id)` (the
+// sub_type_id condition becomes IS NULL for diagnostic / full_length /
+// simulation, where the column is always null by construction). The
+// behavior depends on the existing row's last_heartbeat_ms:
+//
+//   - fresh    (last_heartbeat_ms within ABANDON_THRESHOLD_MS of now):
+//     return the existing sessionId verbatim. Resumed-session path —
+//     `recency_excluded_item_ids` is left as it was at original session
+//     start, since it's a frozen snapshot per plan §3.2.
+//
+//   - stale    (last_heartbeat_ms older than the threshold): finalize the
+//     row as 'abandoned' (same UPDATE shape the abandon-sweep cron uses,
+//     plan §7.3) atomically with the fresh insert in a single transaction,
+//     so no caller can observe a state where the stale row is still
+//     in-progress while the fresh row also exists.
+//
+//   - none: just insert.
+//
+// This closes the strict-mode + cacheComponents double-render orphan
+// source observed during Phase 3 commit-5 smoke (the run-page server-
+// render fired twice on a single request, leaving an unfinalized "twin"
+// drill row). It does NOT close the post-completion orphan source:
+// after `endSession` fires from a form action, Next.js auto-revalidates
+// the form-action's source route, which re-runs the run page's
+// server-side `startSession` — by then the previous session is
+// finalized so the idempotency check correctly inserts a fresh row.
+// Plan §11 tracks this as a Phase 5 follow-up (probably switch the
+// run page's post-completion flow from `revalidatePath()` +
+// source-route re-render to an explicit `redirect()`). Until then,
+// `phase3-commit5.ts:loadDrillSession` filters on
+// `ended_at_ms IS NOT NULL` to express "the drill we just completed"
+// independent of orphan source.
 
 import * as errors from "@superbuilders/errors"
+import { and, desc, eq, isNull, sql } from "drizzle-orm"
 import type { SubTypeId } from "@/config/sub-types"
 import { db } from "@/db"
 import { practiceSessions } from "@/db/schemas/practice/practice-sessions"
 import { logger } from "@/logger"
 import { computeRecencyExcludedSet } from "@/server/items/recency"
 import { getNextItem, type ItemForRender } from "@/server/items/selection"
+import {
+	ABANDON_THRESHOLD_MS,
+	HEARTBEAT_GRACE_MS
+} from "@/server/sessions/abandon-threshold"
 
 const ErrInvalidStartInput = errors.new("invalid startSession input")
 const ErrSessionInsertFailed = errors.new("session insert returned no rows")
@@ -33,6 +73,11 @@ interface StartSessionInput {
 interface StartSessionResult {
 	sessionId: string
 	firstItem: ItemForRender
+}
+
+interface ExistingInProgress {
+	id: string
+	lastHeartbeatMs: number
 }
 
 function targetQuestionCountFor(input: StartSessionInput): number {
@@ -69,12 +114,50 @@ function validateInputShape(input: StartSessionInput): void {
 	}
 }
 
+async function findExistingInProgress(
+	userId: string,
+	type: SessionType,
+	subTypeForRow: SubTypeId | null
+): Promise<ExistingInProgress | null> {
+	const subTypeMatch =
+		subTypeForRow === null
+			? isNull(practiceSessions.subTypeId)
+			: eq(practiceSessions.subTypeId, subTypeForRow)
+	const result = await errors.try(
+		db
+			.select({
+				id: practiceSessions.id,
+				lastHeartbeatMs: practiceSessions.lastHeartbeatMs
+			})
+			.from(practiceSessions)
+			.where(
+				and(
+					eq(practiceSessions.userId, userId),
+					eq(practiceSessions.type, type),
+					subTypeMatch,
+					isNull(practiceSessions.endedAtMs)
+				)
+			)
+			.orderBy(desc(practiceSessions.id))
+			.limit(1)
+	)
+	if (result.error) {
+		logger.error(
+			{ error: result.error, userId, type, subTypeId: subTypeForRow },
+			"findExistingInProgress: query failed"
+		)
+		throw errors.wrap(result.error, "findExistingInProgress")
+	}
+	const row = result.data[0]
+	if (!row) return null
+	return row
+}
+
 async function startSession(input: StartSessionInput): Promise<StartSessionResult> {
 	validateInputShape(input)
 	const target = targetQuestionCountFor(input)
 	const nowMs = Date.now()
-
-	const recencyExcluded = await computeRecencyExcludedSet(input.userId, nowMs)
+	const cutoffMs = nowMs - ABANDON_THRESHOLD_MS
 
 	// timerMode defaults to NULL in the DB for non-drill types; for drills it
 	// MUST come from the caller (validated above).
@@ -89,31 +172,93 @@ async function startSession(input: StartSessionInput): Promise<StartSessionResul
 		subTypeForRow = input.subTypeId
 	}
 
-	const insertResult = await errors.try(
-		db
-			.insert(practiceSessions)
-			.values({
+	// Idempotency probe — read-only, no transaction yet.
+	const existing = await findExistingInProgress(input.userId, input.type, subTypeForRow)
+
+	// Fresh-resume path. The existing row is still within the abandon
+	// threshold, so return it. recency_excluded_item_ids stays as it was
+	// at original session start (frozen snapshot — see plan §3.2).
+	if (existing && existing.lastHeartbeatMs >= cutoffMs) {
+		logger.info(
+			{
+				sessionId: existing.id,
 				userId: input.userId,
 				type: input.type,
 				subTypeId: subTypeForRow,
-				timerMode: timerModeForRow,
-				targetQuestionCount: target,
-				startedAtMs: nowMs,
-				lastHeartbeatMs: nowMs,
-				recencyExcludedItemIds: recencyExcluded,
-				narrowingRampCompleted: input.ifThenPlan !== undefined,
-				ifThenPlan: input.ifThenPlan
-			})
-			.returning({ id: practiceSessions.id })
-	)
-	if (insertResult.error) {
-		logger.error(
-			{ error: insertResult.error, userId: input.userId, type: input.type },
-			"startSession: insert failed"
+				lastHeartbeatMs: existing.lastHeartbeatMs,
+				cutoffMs
+			},
+			"startSession: returning existing in-progress session (fresh)"
 		)
-		throw errors.wrap(insertResult.error, "startSession insert")
+		const firstItem = await getNextItem(existing.id)
+		if (!firstItem) {
+			logger.error(
+				{ sessionId: existing.id, type: input.type },
+				"startSession: resumed session has no selectable first item"
+			)
+			throw errors.wrap(ErrFirstItemMissing, `resumed session '${existing.id}'`)
+		}
+		return { sessionId: existing.id, firstItem }
 	}
-	const inserted = insertResult.data[0]
+
+	// Stale-or-none path. Compute recency outside the transaction (it's a
+	// pure read; the 7-day window can't be invalidated by abandoning a
+	// session since attempts rows are unaffected).
+	const recencyExcluded = await computeRecencyExcludedSet(input.userId, nowMs)
+
+	// Atomic: finalize the stale row (if any) AND insert the fresh row.
+	// Same UPDATE shape as the abandon-sweep cron (plan §7.3) so any
+	// downstream reader sees identical row state regardless of which path
+	// finalized it.
+	const txResult = await errors.try(
+		db.transaction(async (tx) => {
+			if (existing) {
+				const abandonResult = await tx
+					.update(practiceSessions)
+					.set({
+						endedAtMs: sql`${practiceSessions.lastHeartbeatMs} + ${HEARTBEAT_GRACE_MS}`,
+						completionReason: "abandoned"
+					})
+					.where(eq(practiceSessions.id, existing.id))
+					.returning({ id: practiceSessions.id })
+				logger.info(
+					{
+						staleSessionId: existing.id,
+						lastHeartbeatMs: existing.lastHeartbeatMs,
+						cutoffMs,
+						userId: input.userId,
+						type: input.type,
+						finalized: abandonResult.length > 0
+					},
+					"startSession: finalized stale in-progress session as abandoned"
+				)
+			}
+			const insertedRows = await tx
+				.insert(practiceSessions)
+				.values({
+					userId: input.userId,
+					type: input.type,
+					subTypeId: subTypeForRow,
+					timerMode: timerModeForRow,
+					targetQuestionCount: target,
+					startedAtMs: nowMs,
+					lastHeartbeatMs: nowMs,
+					recencyExcludedItemIds: recencyExcluded,
+					narrowingRampCompleted: input.ifThenPlan !== undefined,
+					ifThenPlan: input.ifThenPlan
+				})
+				.returning({ id: practiceSessions.id })
+			return insertedRows
+		})
+	)
+	if (txResult.error) {
+		logger.error(
+			{ error: txResult.error, userId: input.userId, type: input.type },
+			"startSession: insert transaction failed"
+		)
+		throw errors.wrap(txResult.error, "startSession insert")
+	}
+	const inserted = txResult.data[0]
 	if (!inserted) {
 		logger.error(
 			{ userId: input.userId, type: input.type },
@@ -131,7 +276,8 @@ async function startSession(input: StartSessionInput): Promise<StartSessionResul
 			type: input.type,
 			subTypeId: subTypeForRow,
 			targetQuestionCount: target,
-			recencyExcludedCount: recencyExcluded.length
+			recencyExcludedCount: recencyExcluded.length,
+			abandonedStaleSessionId: existing?.id
 		},
 		"startSession: inserted"
 	)

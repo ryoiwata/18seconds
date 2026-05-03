@@ -393,10 +393,14 @@ async function loadDrillSession(userId: string): Promise<{
 	completionReason: string | null
 } | null> {
 	await using adminDb = await createAdminDb()
-	// Prefer the most-recent FINALIZED drill. With reactStrictMode +
-	// cacheComponents in dev, the run page's server render of
-	// startSession() can fire twice on a single request, leaving an
-	// unfinalized "twin" drill row. We always read the finalized one.
+	// Filter on ended_at_ms IS NOT NULL: select only completed drills.
+	// startSession's idempotency (commit `feat(server): make startSession
+	// idempotent on in-progress sessions`) closes the strict-mode
+	// double-render orphan source, but post-completion server-action
+	// revalidation can still create unfinalized rows that race the smoke.
+	// Filtering on completion is semantically correct regardless of orphan
+	// source — the question this query answers is "which drill did we just
+	// complete?", and the completion column is what answers it.
 	const result = await errors.try(
 		adminDb.db
 			.select({

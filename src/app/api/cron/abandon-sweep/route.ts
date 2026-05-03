@@ -29,10 +29,11 @@ import { db } from "@/db"
 import { practiceSessions } from "@/db/schemas/practice/practice-sessions"
 import { env } from "@/env"
 import { logger } from "@/logger"
+import {
+	ABANDON_THRESHOLD_MS,
+	HEARTBEAT_GRACE_MS
+} from "@/server/sessions/abandon-threshold"
 import { masteryRecomputeWorkflow } from "@/workflows/mastery-recompute"
-
-const ABANDON_THRESHOLD_MS = 5 * 60_000
-const HEARTBEAT_GRACE_MS = 30_000
 
 async function POST(req: Request): Promise<Response> {
 	const auth = req.headers.get("authorization")
@@ -99,4 +100,4 @@ async function POST(req: Request): Promise<Response> {
 	return new Response(null, { status: 204 })
 }
 
-export { ABANDON_THRESHOLD_MS, HEARTBEAT_GRACE_MS, POST }
+export { POST }
