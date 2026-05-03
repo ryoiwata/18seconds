@@ -13,13 +13,21 @@
 //   `tick` handler from the action's `nowMs` minus the start values.
 //   They never drift from the start values regardless of how many
 //   ticks were dropped (e.g., when a tab is backgrounded).
+//
+// Phase 3 polish commit 2 removed the diagnostic overtime-note
+// machinery (the `diagnostic_overtime_note_shown` action,
+// `diagnosticOvertimeNoteShown` / `diagnosticOvertimeNoteVisibleUntilMs`
+// state fields, and the DIAGNOSTIC_OVERTIME_* constants). The diagnostic
+// now hard-stops at 15 minutes server-side in `submitAttempt`; the
+// soft "you went over" overlay is obsolete. The cosmetic last-question
+// indicator that surfaces when elapsedSessionMs crosses the diagnostic
+// duration is derived inline in the FocusShell component — no reducer
+// state is needed for it.
 
 import * as errors from "@superbuilders/errors"
 import type { ItemForRender, TimerPrefs } from "@/components/focus-shell/types"
 import { logger } from "@/logger"
 
-const DIAGNOSTIC_OVERTIME_THRESHOLD_MS = 15 * 60_000
-const DIAGNOSTIC_OVERTIME_VISIBLE_MS = 15_000
 const TRIAGE_TAKEN_WINDOW_MS = 3000
 const INTER_QUESTION_FADE_MS = 200
 
@@ -43,8 +51,6 @@ interface ShellState {
 	interQuestionVisible: boolean
 	interQuestionVisibleUntilMs?: number
 	questionsRemaining: number
-	diagnosticOvertimeNoteShown: boolean
-	diagnosticOvertimeNoteVisibleUntilMs?: number
 	// One-shot flag set by `submit` and consumed by the FocusShell
 	// component to invoke onSubmitAttempt asynchronously. Cleared ONLY
 	// by `set_question_started` — i.e., when the next item's <ItemSlot>
@@ -65,7 +71,6 @@ type ShellAction =
 	| { kind: "set_question_started"; nowMs: number }
 	| { kind: "toggle_session_timer" }
 	| { kind: "toggle_question_timer" }
-	| { kind: "diagnostic_overtime_note_shown"; nowMs: number }
 
 interface InitArgs {
 	initialItem: ItemForRender
@@ -89,8 +94,6 @@ function initShellState(args: InitArgs): ShellState {
 		interQuestionVisible: false,
 		interQuestionVisibleUntilMs: undefined,
 		questionsRemaining: args.targetQuestionCount,
-		diagnosticOvertimeNoteShown: false,
-		diagnosticOvertimeNoteVisibleUntilMs: undefined,
 		submitPending: false
 	}
 }
@@ -121,21 +124,6 @@ function reduceTick(state: ShellState, nowMs: number, ctx: TickContext): ShellSt
 		triagePromptFiredAtMs = elapsedQuestionMs
 	}
 
-	// Diagnostic overtime note: only fires once, only for diagnostic, only
-	// after 15 minutes of session elapsed. The component invokes the
-	// server action separately via the `diagnostic_overtime_note_shown`
-	// effect; this reducer just flips the flag.
-	let diagnosticOvertimeNoteShown = state.diagnosticOvertimeNoteShown
-	let diagnosticOvertimeNoteVisibleUntilMs = state.diagnosticOvertimeNoteVisibleUntilMs
-	if (
-		ctx.sessionType === "diagnostic" &&
-		!diagnosticOvertimeNoteShown &&
-		elapsedSessionMs >= DIAGNOSTIC_OVERTIME_THRESHOLD_MS
-	) {
-		diagnosticOvertimeNoteShown = true
-		diagnosticOvertimeNoteVisibleUntilMs = elapsedSessionMs + DIAGNOSTIC_OVERTIME_VISIBLE_MS
-	}
-
 	// Inter-question card auto-clears when its visibility deadline elapses,
 	// so an idle reducer (waiting for advance) doesn't leave the card stuck.
 	let interQuestionVisible = state.interQuestionVisible
@@ -152,8 +140,6 @@ function reduceTick(state: ShellState, nowMs: number, ctx: TickContext): ShellSt
 		elapsedSessionMs,
 		triagePromptFired,
 		triagePromptFiredAtMs,
-		diagnosticOvertimeNoteShown,
-		diagnosticOvertimeNoteVisibleUntilMs,
 		interQuestionVisible
 	}
 }
@@ -237,16 +223,6 @@ function reduceToggleQuestionTimer(state: ShellState): ShellState {
 	}
 }
 
-function reduceOvertimeNoteShown(state: ShellState): ShellState {
-	if (state.diagnosticOvertimeNoteShown) return state
-	return {
-		...state,
-		diagnosticOvertimeNoteShown: true,
-		diagnosticOvertimeNoteVisibleUntilMs:
-			state.elapsedSessionMs + DIAGNOSTIC_OVERTIME_VISIBLE_MS
-	}
-}
-
 // Dispatch is split into two halves so neither exceeds biome's
 // noExcessiveCognitiveComplexity threshold of 15. The `tick` action is
 // handled by the outer reducer (it needs ctx), so neither half sees it.
@@ -277,7 +253,6 @@ function dispatchPrimary(state: ShellState, action: ShellAction): ShellState | u
 function dispatchSecondary(state: ShellState, action: ShellAction): ShellState | undefined {
 	if (action.kind === "toggle_session_timer") return reduceToggleSessionTimer(state)
 	if (action.kind === "toggle_question_timer") return reduceToggleQuestionTimer(state)
-	if (action.kind === "diagnostic_overtime_note_shown") return reduceOvertimeNoteShown(state)
 	return undefined
 }
 
@@ -301,8 +276,6 @@ function makeReducer(ctx: TickContext): (state: ShellState, action: ShellAction)
 
 export type { InitArgs, ShellAction, ShellState, TickContext }
 export {
-	DIAGNOSTIC_OVERTIME_THRESHOLD_MS,
-	DIAGNOSTIC_OVERTIME_VISIBLE_MS,
 	INTER_QUESTION_FADE_MS,
 	TRIAGE_TAKEN_WINDOW_MS,
 	initShellState,

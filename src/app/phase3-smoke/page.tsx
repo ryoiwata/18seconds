@@ -149,7 +149,10 @@ function PhaseThreeSmokePage() {
 		perQuestionTargetMs: 18_000,
 		targetQuestionCount: STUB_ITEMS.length,
 		paceTrackVisible: true,
-		initialTimerPrefs: { sessionTimerVisible: true, questionTimerVisible: false },
+		// Phase 3 polish commit 2 flipped questionTimerVisible default to
+		// true so the smoke harness exercises the restyled per-question
+		// timer bar above the question text.
+		initialTimerPrefs: { sessionTimerVisible: true, questionTimerVisible: true },
 		initialItem: firstItem,
 		strictMode: false,
 		onSubmitAttempt,

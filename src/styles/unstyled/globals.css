@@ -144,4 +144,22 @@
 		}
 	}
 	--animate-shrink-bar: shrink-bar linear forwards;
+
+	/*
+	 * fill-bar: counterpart to shrink-bar that grows left-to-right across
+	 * the session. Used by the restyled <SessionTimerBar> in the
+	 * Phase 3 polish layout — the reference screenshots show a session-
+	 * PROGRESS bar that fills as time elapses (instead of a depleting
+	 * bar). origin-left + scaleX(0)→scaleX(1) gives the same kind of
+	 * pure-CSS animation, restartable via React `key` change.
+	 */
+	@keyframes fill-bar {
+		from {
+			transform: scaleX(0);
+		}
+		to {
+			transform: scaleX(1);
+		}
+	}
+	--animate-fill-bar: fill-bar linear forwards;
 }

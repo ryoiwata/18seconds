@@ -54,7 +54,7 @@ function DrillRunContent(props: DrillRunContentProps) {
 			perQuestionTargetMs={18_000}
 			targetQuestionCount={init.drillLength}
 			paceTrackVisible
-			initialTimerPrefs={{ sessionTimerVisible: true, questionTimerVisible: false }}
+			initialTimerPrefs={{ sessionTimerVisible: true, questionTimerVisible: true }}
 			initialItem={init.firstItem}
 			strictMode={false}
 			onSubmitAttempt={onSubmitAttempt}

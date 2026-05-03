@@ -15,7 +15,7 @@
 
 import * as errors from "@superbuilders/errors"
 import { revalidatePath } from "next/cache"
-import { eq, sql } from "drizzle-orm"
+import { eq } from "drizzle-orm"
 import { z } from "zod"
 import { auth } from "@/auth"
 import { subTypeIds } from "@/config/sub-types"
@@ -119,51 +119,12 @@ async function endSession(sessionId: string): Promise<void> {
 	revalidatePath(`/post-session/${sessionId}`)
 }
 
-const overtimeInputSchema = z.object({
-	sessionId: z.string().uuid()
-})
-
-async function recordDiagnosticOvertimeNote(input: { sessionId: string }): Promise<void> {
-	const parsed = overtimeInputSchema.safeParse(input)
-	if (!parsed.success) {
-		logger.error({ issues: parsed.error.issues }, "recordOvertime: input invalid")
-		throw errors.wrap(ErrInvalidActionInput, "recordDiagnosticOvertimeNote input")
-	}
-	const userId = await requireUserId()
-	await assertSessionOwnedBy(parsed.data.sessionId, userId)
-	// Idempotent: only update when the column is still NULL. A second call
-	// (e.g., a stray re-render firing the effect twice) is a silent no-op.
-	const result = await errors.try(
-		db
-			.update(practiceSessions)
-			.set({
-				diagnosticOvertimeNoteShownAtMs: sql`(extract(epoch from now()) * 1000)::bigint`
-			})
-			.where(
-				sql`${practiceSessions.id} = ${parsed.data.sessionId} AND ${practiceSessions.diagnosticOvertimeNoteShownAtMs} IS NULL`
-			)
-			.returning({ id: practiceSessions.id })
-	)
-	if (result.error) {
-		logger.error(
-			{ error: result.error, sessionId: parsed.data.sessionId },
-			"recordDiagnosticOvertimeNote: update failed"
-		)
-		throw errors.wrap(result.error, "recordDiagnosticOvertimeNote")
-	}
-	if (result.data.length === 0) {
-		// Already recorded — fine, just info.
-		logger.info(
-			{ sessionId: parsed.data.sessionId },
-			"recordDiagnosticOvertimeNote: already recorded (no-op)"
-		)
-		return
-	}
-	logger.info(
-		{ sessionId: parsed.data.sessionId },
-		"recordDiagnosticOvertimeNote: timestamp written"
-	)
-}
+// `recordDiagnosticOvertimeNote` was deleted in
+// docs/plans/phase-3-polish-practice-surface-features.md commit 2.
+// The diagnostic now hard-stops at 15 minutes (commit 1's
+// server-side cutoff in `submitAttempt`); the soft "you went over"
+// note is obsolete. The `practice_sessions.diagnostic_overtime_note_shown_at_ms`
+// DB column is left in place as vestigial — see plan §3.1 / §11.6.
 
 const allowedPercentiles = [50, 30, 20, 10, 5] as const
 const onboardingTargetsSchema = z.object({
@@ -222,7 +183,6 @@ async function saveOnboardingTargets(input: {
 
 export {
 	endSession,
-	recordDiagnosticOvertimeNote,
 	saveOnboardingTargets,
 	startSession,
 	submitAttempt

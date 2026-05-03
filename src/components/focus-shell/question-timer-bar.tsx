@@ -1,11 +1,13 @@
 "use client"
 
-// <QuestionTimerBar> — per-question countdown bar in the shell's
-// `footer` area. Hidden by default in Phase 3 (timerPrefs.questionTimerVisible
-// is hardcoded false at the server-action default). The toggle UI and
-// the persistTimerPrefs write path are Phase 5.
+// <QuestionTimerBar> — per-question SHRINK bar above the question text
+// in the central column. Phase 3 polish commit 2 flipped the default
+// to visible (commit 2 + content-component prop edits) and repositioned
+// the bar from the shell's footer to immediately above the question
+// content. Distinct color register from <SessionTimerBar> so the user
+// doesn't conflate per-question time with session-progress time.
 //
-// SPEC §6.6 / PRD §5.1.
+// SPEC §6.6 / PRD §5.1 + plan §5.2.
 
 import { TimerBar } from "@/components/focus-shell/timer-bar"
 
@@ -16,9 +18,14 @@ interface QuestionTimerBarProps {
 
 function QuestionTimerBar(props: QuestionTimerBarProps) {
 	return (
-		<div className="w-full opacity-30">
+		<div className="w-full">
 			{/* `key={props.itemId}` so the bar restarts on every item swap. */}
-			<TimerBar key={props.itemId} durationMs={props.perQuestionTargetMs} />
+			<TimerBar
+				key={props.itemId}
+				durationMs={props.perQuestionTargetMs}
+				mode="shrink"
+				className="h-1 bg-primary/40"
+			/>
 		</div>
 	)
 }

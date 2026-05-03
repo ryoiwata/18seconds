@@ -10,6 +10,14 @@
 //
 // The user takes the prompt by clicking it OR pressing `T` (the key
 // listener lives in the parent FocusShell).
+//
+// Phase 3 polish commit 2 re-docked this from bottom-center to
+// top-center per
+// docs/plans/phase-3-polish-practice-surface-features.md §5.4. The new
+// layout's full-width "Submit Answer" CTA at the bottom of the central
+// column would have visually competed with the old bottom-center
+// pill. The "Best move: guess and advance. (T)" copy is preserved
+// verbatim — BrainLift-load-bearing per parent-plan §5.2 and PRD §6.1.
 
 import { cn } from "@/lib/utils"
 
@@ -30,8 +38,8 @@ function TriagePrompt(props: TriagePromptProps) {
 			aria-live="polite"
 			onClick={props.onTake}
 			className={cn(
-				"fixed bottom-8 left-1/2 -translate-x-1/2",
-				"rounded-full border border-foreground/20 bg-background/80 px-4 py-2 backdrop-blur",
+				"fixed top-16 left-1/2 z-50 -translate-x-1/2",
+				"rounded-full border border-foreground/20 bg-background/85 px-4 py-2 backdrop-blur",
 				"text-foreground/80 text-sm shadow-md",
 				"transition-opacity",
 				"hover:bg-background"

@@ -3,34 +3,44 @@
 // <FocusShell> — the single load-bearing client primitive of the
 // application. SPEC §6 / Plan §5.
 //
+// Phase 3 polish commit 2 restyle: layout matches
+// data/example_ccat_formatting/*.png. Central column with a
+// large MM:SS chronometer top-right, thin session-progress bar (FILL
+// mode — grows left-to-right as the session elapses), small "Question
+// N / 50" label, thin divider, large question text, optional
+// per-question timer + 18-block depletion above the options, tall
+// option buttons, full-width "Submit Answer" CTA. Triage prompt
+// re-docked top-center per §5.4.
+//
 // Owns:
 // - the useReducer state (shell-reducer.ts)
 // - the requestAnimationFrame tick loop (dispatches `tick` every frame)
 // - the keyboard listeners (T for triage, Enter for submit)
-// - the async server-action calls (onSubmitAttempt, onEndSession,
-//   onRecordDiagnosticOvertime)
+// - the async server-action calls (onSubmitAttempt, onEndSession)
 //
 // Renders:
-// - header: <SessionTimerBar> + <PaceTrack> (hidden for diagnostic)
-// - content: <ItemSlot> (latency-anchor host, keyed on currentItem.id)
-// - footer: <QuestionTimerBar> (hidden when timerPrefs.questionTimerVisible
-//   is false — Phase 3 default)
-// - overlays: <TriagePrompt>, <InterQuestionCard>,
-//   <DiagnosticOvertimeNote>, <Heartbeat> (sibling to <ItemSlot>)
+// - chrome row: chronometer top-right + session-progress bar +
+//   "Question N / 50" + cosmetic last-question indicator
+// - content area: per-question timer + block depletion above the
+//   <ItemSlot> (latency-anchor host, KEYED on currentItem.id), then
+//   the full-width Submit Answer CTA
+// - overlays: <TriagePrompt> (top-center), <InterQuestionCard>,
+//   <Heartbeat> (sibling to <ItemSlot>)
 //
-// Phase 3 wires this against the (app)/actions.ts surface in commit 4.
-// Commit 2 just builds the component + the smoke page that mounts it
-// with stubbed action handlers.
+// The diagnostic overtime-note machinery was removed in this commit —
+// the diagnostic now hard-stops at 15 minutes server-side
+// (commit 1's `submitAttempt` cutoff). The cosmetic last-question
+// indicator below replaces the soft note.
 
 import * as errors from "@superbuilders/errors"
 import * as React from "react"
-import { DiagnosticOvertimeNote } from "@/components/focus-shell/diagnostic-overtime-note"
 import { Heartbeat } from "@/components/focus-shell/heartbeat"
 import { InterQuestionCard } from "@/components/focus-shell/inter-question-card"
 import { ItemSlot } from "@/components/focus-shell/item-slot"
 import { PaceTrack } from "@/components/focus-shell/pace-track"
+import { QuestionBlockDepletion } from "@/components/focus-shell/question-block-depletion"
 import { QuestionTimerBar } from "@/components/focus-shell/question-timer-bar"
-import { SessionTimerBar } from "@/components/focus-shell/session-timer-bar"
+import { SessionTimerBar, formatRemaining } from "@/components/focus-shell/session-timer-bar"
 import {
 	type TickContext,
 	initShellState,
@@ -38,7 +48,6 @@ import {
 } from "@/components/focus-shell/shell-reducer"
 import { TriagePrompt } from "@/components/focus-shell/triage-prompt"
 import type { FocusShellProps, SubmitAttemptInput } from "@/components/focus-shell/types"
-import { Button } from "@/components/ui/button"
 import { logger } from "@/logger"
 import { cn } from "@/lib/utils"
 
@@ -67,8 +76,10 @@ function FocusShell(props: FocusShellProps) {
 		})
 	})
 
-	// requestAnimationFrame tick loop — drives elapsed values, triage-
-	// prompt firing, and the diagnostic-overtime threshold check.
+	// requestAnimationFrame tick loop — drives elapsed values and
+	// triage-prompt firing. The diagnostic-overtime-note check that
+	// previously also lived here was removed in commit 2 (see file
+	// header).
 	React.useEffect(function startTickLoop() {
 		let rafId = 0
 		function tick() {
@@ -80,29 +91,6 @@ function FocusShell(props: FocusShellProps) {
 			cancelAnimationFrame(rafId)
 		}
 	}, [])
-
-	// Once the diagnostic-overtime flag flips, fire the server action that
-	// records the timestamp on the row. Idempotent at the column level
-	// (the action's UPDATE has WHERE col IS NULL).
-	const onRecordDiagnosticOvertime = props.onRecordDiagnosticOvertime
-	React.useEffect(
-		function recordOvertime() {
-			if (!state.diagnosticOvertimeNoteShown) return
-			const fn = onRecordDiagnosticOvertime
-			if (fn === undefined) return
-			async function run(invoke: () => Promise<void>) {
-				const result = await errors.try(invoke())
-				if (result.error) {
-					logger.warn(
-						{ error: result.error },
-						"focus-shell: onRecordDiagnosticOvertime threw — non-fatal"
-					)
-				}
-			}
-			void run(fn)
-		},
-		[state.diagnosticOvertimeNoteShown, onRecordDiagnosticOvertime]
-	)
 
 	const stateRef = React.useRef(state)
 	React.useEffect(
@@ -211,20 +199,31 @@ function FocusShell(props: FocusShellProps) {
 	}, [])
 
 	const sessionDurationMs = props.sessionDurationMs
-	const overtimeUntil = state.diagnosticOvertimeNoteVisibleUntilMs
-	const overtimeVisible = overtimeUntil !== undefined && state.elapsedSessionMs <= overtimeUntil
 
-	// Build the peripheral nodes inside narrowed branches so we don't have
-	// to re-check `sessionDurationMs !== null` when passing it as a prop.
-	let sessionTimerNode: React.ReactNode = null
+	// Cosmetic last-question indicator (plan §5.6). Server is the
+	// source of truth for the cutoff; this is purely a UI hint flipped
+	// when elapsedSessionMs crosses the threshold.
+	const isLastQuestion =
+		sessionDurationMs !== null &&
+		props.sessionType === "diagnostic" &&
+		state.elapsedSessionMs >= sessionDurationMs
+
+	// Build the peripheral nodes inside narrowed branches so we don't
+	// have to re-check `sessionDurationMs !== null` when passing as a
+	// prop. Hidden entirely when the session has no duration (diagnostic
+	// pre-commit-4) or the user has toggled the timer off.
+	let chronometerNode: React.ReactNode = null
+	let sessionBarNode: React.ReactNode = null
 	let paceTrackNode: React.ReactNode = null
 	if (sessionDurationMs !== null && state.timerPrefs.sessionTimerVisible) {
-		sessionTimerNode = (
-			<SessionTimerBar
-				sessionId={props.sessionId}
-				durationMs={sessionDurationMs}
-				elapsedMs={state.elapsedSessionMs}
-			/>
+		const readout = formatRemaining(sessionDurationMs, state.elapsedSessionMs)
+		chronometerNode = (
+			<span className="font-bold text-5xl text-foreground tabular-nums tracking-tight md:text-6xl">
+				{readout}
+			</span>
+		)
+		sessionBarNode = (
+			<SessionTimerBar sessionId={props.sessionId} durationMs={sessionDurationMs} />
 		)
 		if (props.paceTrackVisible) {
 			paceTrackNode = (
@@ -246,55 +245,85 @@ function FocusShell(props: FocusShellProps) {
 		)
 	}
 
+	const questionNumber = props.targetQuestionCount - state.questionsRemaining + 1
+	const lastQuestionSuffix = isLastQuestion ? " — last question" : ""
+
 	const strictModeAttr = String(props.strictMode)
+
+	const submitDisabled = state.submitPending
 
 	return (
 		<div
 			data-strict-mode={strictModeAttr}
-			className={cn(
-				"grid min-h-dvh w-full",
-				"grid-rows-[auto_1fr_auto]",
-				"gap-4 px-6 py-4"
-			)}
+			className={cn("flex min-h-dvh w-full flex-col px-6 py-8")}
 		>
-			{/* header — session timer + pace track. Hidden entirely for
-			    diagnostic (sessionDurationMs === null) and toggleable for
-			    other types via timerPrefs.sessionTimerVisible. */}
-			<div className="flex flex-col gap-1">
-				{sessionTimerNode}
-				{paceTrackNode}
-			</div>
+			<main className="mx-auto flex w-full max-w-3xl flex-1 flex-col">
+				{/* chrome row — chronometer top-right, then progress bar,
+				    then "Question N / 50" + cosmetic last-question
+				    indicator + thin divider. */}
+				{chronometerNode !== null ? (
+					<div className="mb-4 flex justify-end">{chronometerNode}</div>
+				) : null}
+				{sessionBarNode}
+				{paceTrackNode !== null ? <div className="mt-1">{paceTrackNode}</div> : null}
+				<div className="mt-2 text-foreground/70 text-sm">
+					Question <strong className="text-foreground">{questionNumber}</strong>
+					{" / "}
+					{props.targetQuestionCount}
+					{lastQuestionSuffix}
+				</div>
+				<hr className="mt-3 border-foreground/10" />
 
-			{/* content — the only fully-illuminated area. */}
-			<div className="mx-auto w-full max-w-2xl py-12">
-				<ItemSlot
-					key={state.currentItem.id}
-					item={state.currentItem}
-					selectedOptionId={state.selectedOptionId}
-					onSelectOption={function selectOption(optionId: string) {
-						dispatch({ kind: "select", optionId })
-					}}
-					onMounted={function onItemMounted(nowMs: number) {
-						dispatch({ kind: "set_question_started", nowMs })
-					}}
-				/>
-				<div className="mt-8 flex justify-end">
-					<Button
+				{/* content area — per-question timer + block depletion as
+				    framing chrome above the question, then the question
+				    text + options inside <ItemSlot>, then the full-width
+				    Submit Answer CTA. */}
+				<div className="mt-8 flex flex-col gap-6">
+					<div className="flex flex-col gap-2">
+						{questionTimerNode}
+						<QuestionBlockDepletion elapsedQuestionMs={state.elapsedQuestionMs} />
+					</div>
+					{/*
+					 * LOAD-BEARING: do not remove the `key={state.currentItem.id}`
+					 * prop. The keyed mount is what re-runs <ItemSlot>'s mount
+					 * effect, which captures `performance.now()` at first paint
+					 * of every new item and dispatches `set_question_started` —
+					 * the latency anchor. The 5-minute tripwire in
+					 * src/server/sessions/submit.ts is the safety net; this key
+					 * is the contract.
+					 * See docs/plans/phase-3-practice-surface.md §9.1 +
+					 * docs/plans/phase-3-polish-practice-surface-features.md §5.5.
+					 */}
+					<ItemSlot
+						key={state.currentItem.id}
+						item={state.currentItem}
+						selectedOptionId={state.selectedOptionId}
+						onSelectOption={function selectOption(optionId: string) {
+							dispatch({ kind: "select", optionId })
+						}}
+						onMounted={function onItemMounted(nowMs: number) {
+							dispatch({ kind: "set_question_started", nowMs })
+						}}
+					/>
+					<button
+						type="button"
 						onClick={function clickSubmit() {
 							if (state.submitPending) return
 							dispatch({ kind: "submit", nowMs: performance.now() })
 						}}
-						disabled={state.submitPending}
+						disabled={submitDisabled}
+						className={cn(
+							"w-full rounded-md bg-primary px-6 py-4 font-medium text-base text-primary-foreground transition-colors",
+							"hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+							"disabled:cursor-not-allowed disabled:opacity-50"
+						)}
 					>
-						Submit
-					</Button>
+						Submit Answer
+					</button>
 				</div>
-			</div>
+			</main>
 
-			{/* footer — per-question timer (hidden by default in Phase 3). */}
-			<div>{questionTimerNode}</div>
-
-			{/* overlays — outside the grid layout. */}
+			{/* overlays — outside the central column. */}
 			<TriagePrompt
 				visible={state.triagePromptFired}
 				ifThenPlan={props.ifThenPlan}
@@ -303,7 +332,6 @@ function FocusShell(props: FocusShellProps) {
 				}}
 			/>
 			<InterQuestionCard visible={state.interQuestionVisible} />
-			<DiagnosticOvertimeNote visible={overtimeVisible} />
 			<Heartbeat sessionId={props.sessionId} />
 		</div>
 	)
