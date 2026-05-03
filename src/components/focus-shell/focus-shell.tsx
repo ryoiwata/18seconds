@@ -46,7 +46,7 @@ import * as React from "react"
 import { Heartbeat } from "@/components/focus-shell/heartbeat"
 import { InterQuestionCard } from "@/components/focus-shell/inter-question-card"
 import { ItemSlot } from "@/components/focus-shell/item-slot"
-import { PaceTrack } from "@/components/focus-shell/pace-track"
+import { QuestionProgressionBar } from "@/components/focus-shell/question-progression-bar"
 import { QuestionTimerBar } from "@/components/focus-shell/question-timer-bar"
 import { SessionTimerBar, formatRemaining } from "@/components/focus-shell/session-timer-bar"
 import {
@@ -224,7 +224,6 @@ function FocusShell(props: FocusShellProps) {
 	// pre-commit-4) or the user has toggled the timer off.
 	let chronometerNode: React.ReactNode = null
 	let sessionBarNode: React.ReactNode = null
-	let paceTrackNode: React.ReactNode = null
 	if (sessionDurationMs !== null && state.timerPrefs.sessionTimerVisible) {
 		const readout = formatRemaining(sessionDurationMs, state.elapsedSessionMs)
 		chronometerNode = (
@@ -235,15 +234,21 @@ function FocusShell(props: FocusShellProps) {
 		sessionBarNode = (
 			<SessionTimerBar sessionId={props.sessionId} durationMs={sessionDurationMs} />
 		)
-		if (props.paceTrackVisible) {
-			paceTrackNode = (
-				<PaceTrack
-					totalQuestions={props.targetQuestionCount}
-					questionsRemaining={state.questionsRemaining}
-				/>
-			)
-		}
 	}
+
+	// Question progression bar is unconditional — it's a "you're on
+	// question K of N" indicator, not a session-pace measurement, so
+	// it renders for every session type regardless of session-timer
+	// visibility or the legacy `paceTrackVisible` flag (which is now
+	// vestigial; commit 3 of the focus-shell overhaul leaves it on
+	// the props shape for now to avoid disrupting the drill /
+	// diagnostic content components, but no render path reads it).
+	const progressionBarNode = (
+		<QuestionProgressionBar
+			totalQuestions={props.targetQuestionCount}
+			questionsRemaining={state.questionsRemaining}
+		/>
+	)
 
 	let questionTimerNode: React.ReactNode = null
 	if (state.timerPrefs.questionTimerVisible) {
@@ -274,8 +279,8 @@ function FocusShell(props: FocusShellProps) {
 				{chronometerNode !== null ? (
 					<div className="mb-4 flex justify-end">{chronometerNode}</div>
 				) : null}
-				{sessionBarNode}
-				{paceTrackNode !== null ? <div className="mt-1">{paceTrackNode}</div> : null}
+				{progressionBarNode}
+				{sessionBarNode !== null ? <div className="mt-1">{sessionBarNode}</div> : null}
 				<div className="mt-2 text-foreground/70 text-sm">
 					Question <strong className="text-foreground">{questionNumber}</strong>
 					{" / "}
