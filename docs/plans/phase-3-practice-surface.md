@@ -46,43 +46,73 @@ Each item below is named explicitly so a future reader of this plan does not inf
 
 ## 3. Schema changes
 
-**Phase 3 adds zero columns and zero tables.** Every column the user prompt enumerated as load-bearing for Phase 3 was already created in Phase 1 (verified against `src/db/schemas/practice/practice-sessions.ts`, `src/db/schemas/practice/attempts.ts`, `src/db/schemas/practice/mastery-state.ts`, and `src/db/schemas/auth/users.ts`). This section enumerates each one and flags the source phase, so the §10 commit sequence can rely on the schema being already-shaped.
+**Phase 3 adds zero columns and zero tables — pending §3.0.** Every column and enum value the user prompt enumerated as load-bearing for Phase 3 *should* already exist from Phase 1, but that is a claim, not a contract. §3.0 below mandates a hard verification step before commit 1 begins; the §3.1–§3.10 subsections each carry a verified-against / verification-pending marker so the next reader sees this is still a real check.
 
-### 3.1 `practice_sessions.last_heartbeat_ms` — **Phase 1 already**
+### 3.0 Pre-flight: schema diff (NEW — added in plan v2)
+
+Before commit 1's first line of code lands, run a schema-audit pass against `src/db/schema.ts` (the barrel), `src/db/schemas/**/*.ts` (the individual table files), and `drizzle/0000_*.sql` (the applied migration). The pass confirms every column and enum value that §3.1–§3.10 below claim is "Phase 1 already." Concretely:
+
+```
+# Column presence — one grep per column listed in §3.1–§3.9
+grep -E '(last_heartbeat_ms|recency_excluded_item_ids|completion_reason|diagnostic_overtime_note_shown_at_ms|if_then_plan|narrowing_ramp_completed|timer_prefs_json|target_percentile|target_date_ms|served_at_tier|fallback_from_tier|triage_prompt_fired|triage_taken|metadata_json|was_mastered)' \
+    src/db/schemas/**/*.ts drizzle/0000_*.sql
+
+# Enum value presence — verifies §3.10
+grep -E "session_type|completion_reason|item_difficulty|mastery_level|timer_mode" \
+    src/db/schemas/**/*.ts
+```
+
+**If the diff finds anything missing**, that delta becomes commit 1.0 (a schema-only commit landing the gaps via `bun db:generate` + `bun db:push` per `README.md` §"Human-led Database Migrations") and every later commit number in §10 shifts by one (commit 1 → commit 1.1, commit 2 → commit 2.0, etc.). The §3 subsections that listed the missing column flip from "verified-against" to "added in commit 1.0."
+
+**Verification result at plan v2 publication:** all columns and enum values in §3.1–§3.10 verified-against `drizzle/0000_typical_golden_guardian.sql` and the `src/db/schemas/**/*.ts` files. **No commit 1.0 needed; the §10 commit count stays at 5.** This result is restated per-subsection below for traceability — if a future revision invalidates any of those markers (e.g., a schema change between this plan and Phase 3 kickoff), the per-subsection marker is what gets corrected, and §3.0's "no commit 1.0 needed" claim is what gets revisited.
+
+### 3.1 `practice_sessions.last_heartbeat_ms` — **Phase 1 already** (verified-against `drizzle/0000_typical_golden_guardian.sql:132`)
 
 `bigint("last_heartbeat_ms", { mode: "number" }).notNull().default(sql\`(extract(epoch from now()) * 1000)::bigint\`)`. Updated by `recordHeartbeat`. Indexed (partial) by `practice_sessions_abandon_sweep_idx ON (last_heartbeat_ms) WHERE ended_at_ms IS NULL`. Phase 3 reads and writes; no schema migration.
 
-### 3.2 `practice_sessions.recency_excluded_item_ids: uuid[]` — **Phase 1 already**
+### 3.2 `practice_sessions.recency_excluded_item_ids: uuid[]` — **Phase 1 already** (verified-against `drizzle/0000_typical_golden_guardian.sql:136` + `practice_sessions_recency_excluded_gin_idx`)
 
 `uuid("recency_excluded_item_ids").array().notNull().default(sql\`'{}'::uuid[]\`)`. Indexed by `practice_sessions_recency_excluded_gin_idx USING gin`. Phase 3 writes the materialized set at `startSession`; reads it inside `getNextItem` to filter eligible items. No schema migration.
 
-### 3.3 `practice_sessions.completion_reason` (the "abandonment-state column") — **Phase 1 already**
+### 3.3 `practice_sessions.completion_reason` (the "abandonment-state column") — **Phase 1 already** (verified-against `drizzle/0000_typical_golden_guardian.sql:8,133`)
 
 Implemented as `pgEnum('completion_reason', ['completed','abandoned'])`, nullable until set. The diagnostic gate's filter is `completion_reason != 'abandoned' AND ended_at_ms IS NOT NULL` — both halves matter, since abandoned-and-ended-at-ms-set rows must NOT count as "diagnostic complete." Phase 3 writes `'completed'` from `endSession` and `'abandoned'` from the cron-driven sweep.
 
-### 3.4 `practice_sessions.diagnostic_overtime_note_shown_at_ms` — **Phase 1 already**
+### 3.4 `practice_sessions.diagnostic_overtime_note_shown_at_ms` — **Phase 1 already** (verified-against `drizzle/0000_typical_golden_guardian.sql:138`)
 
 Nullable `bigint`. Set once by a server action when the FocusShell crosses the 15-minute mark in a diagnostic. Phase 3 wires the write; the substantive overtime feedback lives on the post-session review (Phase 3 deliverable §1.4).
 
-### 3.5 `practice_sessions.if_then_plan` and `practice_sessions.narrowing_ramp_completed` — **Phase 1 already**
+### 3.5 `practice_sessions.if_then_plan` and `practice_sessions.narrowing_ramp_completed` — **Phase 1 already** (verified-against `drizzle/0000_typical_golden_guardian.sql:134,135`)
 
 Phase 3 inserts both with safe defaults (`if_then_plan = NULL`, `narrowing_ramp_completed = false`) since the NarrowingRamp does not run in this phase. Phase 5 populates them.
 
-### 3.6 `users.timer_prefs_json` — **Phase 1 already**
+### 3.6 `users.timer_prefs_json` — **Phase 1 already** (verified-against `drizzle/0000_typical_golden_guardian.sql:41`)
 
 `jsonb("timer_prefs_json").notNull().default(sql\`'{}'::jsonb\`)`. Phase 3 reads with a hardcoded default object when the column's parsed shape is empty (`{ sessionTimerVisible: true, questionTimerVisible: false }`). No Phase 3 write path; the value is plumbed into the FocusShell's `initialTimerPrefs` prop and, since there is no toggle UI, it never round-trips back to the server in this phase.
 
-### 3.7 `users.target_percentile` and `users.target_date_ms` — **Phase 1 already**
+### 3.7 `users.target_percentile` and `users.target_date_ms` — **Phase 1 already** (verified-against `drizzle/0000_typical_golden_guardian.sql:39,40`)
 
 Both nullable. Written by `saveOnboardingTargets` from the diagnostic post-session form. Read by `deriveNearGoal` for the Mastery Map's near-goal line. The `targetPercentile` column accepts the discrete set `{50, 30, 20, 10, 5}` — enforced at the action layer via `z.enum`-style validation, not at the column level (the column is a plain `integer`).
 
-### 3.8 `attempts.served_at_tier`, `attempts.fallback_from_tier`, `attempts.metadata_json` — **Phase 1 already**
+### 3.8 `attempts.served_at_tier`, `attempts.fallback_from_tier`, `attempts.metadata_json`, `attempts.triage_prompt_fired`, `attempts.triage_taken` — **Phase 1 already** (verified-against `drizzle/0000_typical_golden_guardian.sql:107–111`) (revised in plan v2 — triage columns added to this subsection)
 
-Phase 3's `submitAttempt` writes all three. The `metadata_json.fallback_level` field carries the four-state value `'fresh' | 'session-soft' | 'recency-soft' | 'tier-degraded'` — the value flows from `getNextItem` through `ItemForRender.selection` to the FocusShell and back via `SubmitAttemptInput.selection`. Phase 3 only ever writes `'fresh'` and `'session-soft'` (recency-soft and tier-degraded require fallback chains the diagnostic and uniform_band drills only encounter at the seed-bank's edges — which they do; see §8 pre-flight check).
+Phase 3's `submitAttempt` writes all five. `served_at_tier` and `fallback_from_tier` are dedicated enum columns; `triage_prompt_fired` and `triage_taken` are dedicated booleans (NOT nested inside `metadata_json` — see §4.5 for the read-path contract that consumes them). The `metadata_json.fallback_level` field carries the four-state value `'fresh' | 'session-soft' | 'recency-soft' | 'tier-degraded'` — the value flows from `getNextItem` through `ItemForRender.selection` to the FocusShell and back via `SubmitAttemptInput.selection`. Phase 3 only ever writes `'fresh'` and `'session-soft'` (recency-soft and tier-degraded require fallback chains the diagnostic and uniform_band drills only encounter at the seed-bank's edges — which they do; see §8 pre-flight check).
 
-### 3.9 `mastery_state` and `mastery_state.was_mastered` — **Phase 1 already**
+### 3.9 `mastery_state` and `mastery_state.was_mastered` — **Phase 1 already** (verified-against `drizzle/0000_typical_golden_guardian.sql:114–124`)
 
 Phase 3 writes via `recomputeForUser(userId, subTypeId, source)` from `masteryRecomputeWorkflow`. `was_mastered` is set to `true` (idempotently) the first time `current_state` becomes `'mastered'` or `'decayed'`. Diagnostic-source recomputes never set `current_state = 'mastered'` per `sourceParams('diagnostic')` (`allowMastered: false`), so a user finishing the diagnostic always lands in `learning` or `fluent` for every sub-type they attempted ≥3 of.
+
+### 3.10 Enum coverage (NEW — added in plan v2)
+
+The §4.1 dispatch's exhaustive switch over `SessionType` only type-checks if every value is present in the `session_type` enum, and the post-session route's redirect logic reads `completion_reason` against both possible values. Verify before commit 1 begins:
+
+- `pgEnum('session_type', [...])` contains all five values: `'diagnostic'`, `'drill'`, `'full_length'`, `'simulation'`, `'review'`. **Verified** at `src/db/schemas/practice/practice-sessions.ts:16–22` and `drizzle/0000_typical_golden_guardian.sql:6` (CREATE TYPE statement).
+- `pgEnum('completion_reason', [...])` contains both values: `'completed'`, `'abandoned'`. **Verified** at `src/db/schemas/practice/practice-sessions.ts:26` and `drizzle/0000_typical_golden_guardian.sql:8`.
+- `pgEnum('item_difficulty', [...])` contains all four values: `'easy'`, `'medium'`, `'hard'`, `'brutal'`. Required by the §4.3 `'uniform_band'` initial-tier table and the §4.2 `'fixed_curve'` tier-degraded fallback. **Verified** at `src/db/schemas/catalog/items.ts:7`.
+- `pgEnum('mastery_level', [...])` contains all four values: `'learning'`, `'fluent'`, `'mastered'`, `'decayed'`. Required by the §6.3 Mastery Map's icon fill state and §4.3's initial-tier lookup. **Verified** at `src/db/schemas/practice/mastery-state.ts:5`.
+- `pgEnum('timer_mode', [...])` contains `'standard'` (Phase 3 ships only this value, but `'speed_ramp'` and `'brutal'` must already be present so Phase 5 doesn't break the existing column type). **Verified** at `src/db/schemas/practice/practice-sessions.ts:24`.
+
+If any value is missing on the next pass of §3.0, add the missing values to the enum in commit 1.0 (a `CREATE TYPE ... ADD VALUE` migration) — the §10 commit count then shifts as described in §3.0.
 
 ## 4. Selection engine — design
 
@@ -146,6 +176,32 @@ The `'uniform_band'` value is intentionally not added to a public-facing config 
 ### 4.4 `ItemForRender.selection` and the request/response loop
 
 `getNextItem` returns `{ id, body, options, selection: { servedAtTier, fallbackFromTier?, fallbackLevel } }`. The FocusShell holds `selection` opaque and echoes it back in `SubmitAttemptInput.selection` on the next submit. `submitAttempt` writes `served_at_tier`, `fallback_from_tier`, and `metadata_json.fallback_level` from the echoed value. **No serverless state survives across calls** — the values travel through the request/response cycle exactly once, which is what the SPEC §7.4 echo-back design solves for.
+
+### 4.5 Triage adherence storage contract (NEW — added in plan v2)
+
+`triageScoreForSession(sessionId)` and `triageRolling30d(userId)` (both in `src/server/triage/score.ts`, both shipped in commit 1) need a stable read path. The storage contract:
+
+- **`attempts.triage_prompt_fired: boolean`** — written by `submitAttempt` from `SubmitAttemptInput.triagePromptFired`. The FocusShell sets this to `true` when the per-question `elapsedQuestionMs` crossed `perQuestionTargetMs` (18000ms in Phase 3) at any point before the user submitted, otherwise `false`. Source-of-truth lives in the reducer's `triagePromptFired` flag (§5.2 / SPEC §6.7).
+- **`attempts.triage_taken: boolean`** — written by `submitAttempt` from `SubmitAttemptInput.triageTaken`. The FocusShell sets this to `true` only when the user clicked the prompt OR pressed `T` AND the take landed within 3000ms of `triagePromptFiredAtMs` (the 3-second window from PRD §6.1, mirrored in the §5.2 reducer's `triage_take` action handler). Otherwise `false`. **Submitting normally — even with the prompt visible — does NOT count as taking it**; the user has to make the deliberate take action.
+
+Note: these two booleans are **dedicated columns on `attempts`**, not nested inside `metadata_json`. This was confirmed against the schema in §3.8's verification — an early draft of this contract proposed JSON-blob storage, which would have required a `jsonb` parse on every rolling-30-day read. The native columns let `triageRolling30d` reduce to a single indexed scan.
+
+Adherence formula: `triage_taken_count / triage_prompt_fired_count` over the last 30 days, joined to `practice_sessions` for the user.
+
+```sql
+-- triageRolling30d query shape
+SELECT
+    SUM(CASE WHEN a.triage_taken THEN 1 ELSE 0 END)        AS taken,
+    SUM(CASE WHEN a.triage_prompt_fired THEN 1 ELSE 0 END) AS fired
+FROM attempts a
+JOIN practice_sessions s ON s.id = a.session_id
+WHERE s.user_id = $1
+  AND a.id >= uuidv7LowerBound($now_ms - 30 * 86400000)
+```
+
+The 30-day window is range-scanned via the UUIDv7 lower-bound trick (`src/db/lib/uuid-time.ts`), so no `created_at_ms` column is needed (and none exists, per `rules/no-timestamp-columns.md`).
+
+`triageScoreForSession` returns `{ fired, taken, ratio: number | null }` per SPEC §9.7: `ratio` is `taken / fired` when `fired >= 3`, otherwise `null` (the small-sample branch). `triageRolling30d` returns the same shape with the same small-sample threshold. The Mastery Map's low-contrast triage adherence indicator (§6.3) renders `ratio` if non-null, otherwise the small-sample text per PRD §5.2.
 
 ## 5. FocusShell — design
 
@@ -236,11 +292,13 @@ const completedDiagnostic = await db.select({ ok: sql<number>`1` })
 if (completedDiagnostic.length === 0) redirect("/diagnostic")
 ```
 
-The gate must **not** apply to `/diagnostic` itself or `/post-session/[sessionId]` — those routes live OUTSIDE `(app)/`. Concretely, the route group structure is:
+The gate must **not** apply to `/diagnostic` itself or `/post-session/[sessionId]` — those routes live OUTSIDE `(app)/`. Concretely, the route group structure is (revised in plan v2 — `(diagnostic-flow)/layout.tsx` made explicit, login confirmed):
 
-- `src/app/(app)/layout.tsx` → enforces the gate, wraps `/`, `/drill/...`.
-- `src/app/(diagnostic-flow)/diagnostic/page.tsx` → diagnostic flow itself, lives in a sibling route group with its own minimal layout (just the auth check, no diagnostic-completed gate).
-- `src/app/(diagnostic-flow)/post-session/[sessionId]/page.tsx` → diagnostic post-session, same sibling group.
+- `src/app/(app)/layout.tsx` (NEW in commit 4) → auth check + diagnostic-completed gate, wraps `/`, `/drill/...`.
+- `src/app/(diagnostic-flow)/layout.tsx` (NEW in commit 4) → auth check ONLY (`if (!session?.user?.id) redirect("/login")`); does NOT run the diagnostic-completed gate. This is the layout that lets `/diagnostic` and `/post-session/[sessionId]` render for a user who has not yet completed the diagnostic. Without this file, Next.js falls back to the root layout and the auth check has to live on every page in the group — fragile.
+- `src/app/(diagnostic-flow)/diagnostic/page.tsx` (NEW in commit 4) → diagnostic flow.
+- `src/app/(diagnostic-flow)/post-session/[sessionId]/page.tsx` (NEW in commit 4) → diagnostic post-session.
+- `src/app/login/page.tsx` — **already exists** (verified at `src/app/login/page.tsx`; Phase 1/2 shipped a single-button Google OAuth via `signIn("google", { redirectTo: "/" })`). No Phase 3 change to this file.
 
 This is the cleanest way to express "auth required, but diagnostic-completed not required" for the diagnostic flow itself; alternatives (a path-prefix check inside `(app)/layout.tsx`) are fragile and easy to break by accident. See §9 risk areas for the redirect-loop edges this layout structure prevents.
 
@@ -362,11 +420,11 @@ Files added/modified:
 - `src/server/items/selection.ts` (NEW) — `selectionStrategyForSession`, `getNextItem`, `getNextFixedCurve`, `getNextUniformBand`, throwing stubs for `'adaptive'` and `'review_queue'`. Exports the `ItemForRender`, `ItemSelection`, `SelectionStrategy` types.
 - `src/server/items/recency.ts` (NEW) — `computeRecencyExcludedSet(userId, nowMs)` running the UUIDv7-lower-bound query joining `attempts` to `practice_sessions`.
 - `src/server/items/queries.ts` (NEW) — colocated Drizzle prepared statements used by `selection.ts`.
-- `src/server/sessions/{queries,start,submit,end}.ts` (NEW) — the server-side bodies of the actions.
-- `src/server/triage/score.ts` (NEW) — `triageScoreForSession` + `triageRolling30d`.
+- `src/server/sessions/{queries,start,submit,end}.ts` (NEW) — the server-side bodies of the actions. `endSession`'s server-side body accepts an optional `{ skipWorkflowTrigger?: boolean }` flag (default `false`) that, when `true`, skips the `start(masteryRecomputeWorkflow, ...)` call and writes the session-end columns only. This flag is the dev/test escape hatch documented in the commit-1 smoke below; it is **NOT** exposed via `src/app/(app)/actions.ts:endSession` (the server action), only through a direct import of the underlying function from `src/server/sessions/end.ts`. No real Phase 3 call site imports the underlying function. (revised in plan v2 — added the flag)
+- `src/server/triage/score.ts` (NEW) — `triageScoreForSession` + `triageRolling30d` per the §4.5 storage contract; both read `attempts.triage_prompt_fired` and `attempts.triage_taken` directly (native columns, not `metadata_json`-nested) and return `{ fired, taken, ratio: number | null }` with the `fired >= 3` small-sample threshold from SPEC §9.7.
 - `src/server/mastery/{compute,recompute,near-goal}.ts` (NEW) — pure-function mastery + the recompute upsert.
 - `src/workflows/mastery-recompute.ts` (NEW) — Vercel Workflow wrapping `recomputeForUser` over distinct sub-types in a session.
-- `src/app/(app)/actions.ts` (NEW) — `"use server"` file exporting `startSession`, `submitAttempt`, `endSession`, `recordDiagnosticOvertimeNote`, `saveOnboardingTargets`. Each follows the `errors.try` + `logger.error` + `errors.wrap` pattern; each calls `revalidatePath` after writes (except `saveOnboardingTargets` which calls `revalidatePath('/')`).
+- `src/app/(app)/actions.ts` (NEW) — `"use server"` file exporting `startSession`, `submitAttempt`, `endSession`, `recordDiagnosticOvertimeNote`, `saveOnboardingTargets`. The server-action `endSession` always passes `skipWorkflowTrigger: false` (i.e., always fires the workflow); the flag is reachable only by direct import of the underlying function in dev/test paths. Each action follows the `errors.try` + `logger.error` + `errors.wrap` pattern; each calls `revalidatePath` after writes (except `saveOnboardingTargets` which calls `revalidatePath('/')`).
 
 Smoke tests (the explicit checkpoint criterion):
 - `bun lint && bun typecheck` — both clean.
@@ -374,11 +432,11 @@ Smoke tests (the explicit checkpoint criterion):
 - A throwaway Bun script (`scripts/dev/smoke/phase3-commit1.ts`, NEW, then `git rm` after sign-off — or kept in `scripts/dev/smoke/` as a pattern for future commits) that:
   - Calls `startSession({ type: 'diagnostic' })` against the dev DB, asserts the response shape (`{ sessionId, firstItem }` with `firstItem.options.length >= 4`).
   - Calls `submitAttempt` with a hand-crafted `selection` payload, asserts `nextItem` is returned.
-  - Calls `endSession`, asserts the row's `ended_at_ms` is set and `completion_reason = 'completed'`.
+  - Calls the underlying `endSession` from `src/server/sessions/end.ts` directly with `{ skipWorkflowTrigger: true }` — **NOT** the server action. The flag is required here because `start(workflow)` requires Next.js request context and throws from raw Bun (per Phase 2's Appendix D item 4). Asserts the row's `ended_at_ms` is set and `completion_reason = 'completed'`. The full workflow-trigger path (`endSession` → `masteryRecomputeWorkflow` end-to-end) is verified in commit 4's diagnostic-flow smoke instead, where the action runs inside the Next.js dev server.
   - SQL spot-check: `SELECT count(*) FROM attempts WHERE session_id = $1` returns 1.
 - Stub-throw verification: a curl-equivalent call that constructs a `drill`-type session but with the `drill → adaptive` mapping flipped on (manually edited then reverted) to confirm the `'adaptive'` branch throws with the expected message. Optional but instructive.
 
-Stop-and-report criterion: all four smoke tests pass; the throwaway smoke script's output is pasted into the commit's report; `bun typecheck` is clean.
+Stop-and-report criterion: all four smoke tests pass; the throwaway smoke script's output is pasted into the commit's report; `bun typecheck` is clean. The `skipWorkflowTrigger` flag's only Phase 3 caller is the smoke script — confirmed by `grep -r "skipWorkflowTrigger" src/ scripts/` showing only the two expected hits (the function definition and the smoke call).
 
 ### Commit 2 — `feat(focus-shell): client component + reducer + timer loop + heartbeat client`
 
@@ -389,6 +447,7 @@ Files added/modified:
 - `src/components/focus-shell/shell-reducer.ts` (NEW) — per-SPEC §6.2 actions and reducer.
 - `src/components/focus-shell/{session-timer-bar,pace-track,question-timer-bar,triage-prompt,inter-question-card,diagnostic-overtime-note,heartbeat,item-slot}.tsx` (NEW) — peripherals + the keyed `<ItemSlot>` that owns latency capture.
 - `src/components/focus-shell/types.ts` (NEW) — `FocusShellProps`, `TimerPrefs`, `SubmitAttemptInput`, `SubmitAttemptResult` types, mirroring the action signatures from commit 1.
+- `src/components/item/item-prompt.tsx` and `src/components/item/option-button.tsx` — **already exist from Phase 2 and are reusable as-is** (revised in plan v2 — confirmed via inspection). `<ItemPrompt>` already takes `{ body, options, selectedOptionId, onSelect }` and computes `displayLabel = String.fromCharCode(0x41 + index)` per-option, then renders `<OptionButton>` with `id`, `displayLabel`, `text`, `selected`, `onSelect`. The keyboard-nav handler for `1`–`5` and `A`–`E` is already attached. `<ItemSlot>` mounts `<ItemPrompt>` directly with the current item's `body` and `options`, wires `selectedOptionId` from the reducer's `selectedOptionId` field, and passes an `onSelect` that dispatches `{ kind: "select", optionId }` to the reducer. **No extraction or refactor of either Phase 2 component is needed.** The only Phase 3 addition adjacent to these is the `T`-key handler for triage-take, which lives in the FocusShell's own keydown effect (separate from `<ItemPrompt>`'s 1–5/A–E handler so they don't fight) — the two listeners coexist via `event.key` discrimination.
 
 Smoke tests:
 - `bun lint && bun typecheck` clean. The lint pass enforces `no-arrow-functions`, `no-relative-imports`, `no-inline-style`, `no-iife`, etc., on the new component files.
@@ -425,14 +484,15 @@ Stop-and-report criterion: all four checks pass; `bun lint` shows the proxy's ma
 
 Scope: routes + the (diagnostic-flow) and (app) route groups. Wires commits 1–3 into a real user flow.
 
-Files added/modified:
-- `src/app/(app)/layout.tsx` (NEW) — server-component diagnostic gate per §6.5.
+Files added/modified (revised in plan v2 — `(diagnostic-flow)/layout.tsx` added; `actions.ts` alternative removed; `/login` confirmed pre-existing):
+- `src/app/(app)/layout.tsx` (NEW) — server-component auth check + diagnostic-completed gate per §6.5.
 - `src/app/(app)/page.tsx` (NEW) — placeholder Mastery Map ("hello, your diagnostic is complete" + a "Start drill: <sub-type>" link). The full `<MasteryMap>` component lands in commit 5.
+- `src/app/(diagnostic-flow)/layout.tsx` (NEW) — auth check ONLY (`if (!session?.user?.id) redirect("/login")`), no diagnostic-completed gate. Lets the diagnostic and post-session routes render for users who haven't yet finished the diagnostic, without each page repeating the auth check.
 - `src/app/(diagnostic-flow)/diagnostic/page.tsx` (NEW) — server component, runs the in-progress-stale-finalize check then `startSession`, passes promise to content.
 - `src/app/(diagnostic-flow)/diagnostic/content.tsx` (NEW) — `"use client"`, `React.use(promise)`, mounts `<FocusShell>` with the diagnostic config.
-- `src/app/(diagnostic-flow)/post-session/[sessionId]/page.tsx` (NEW) — server component, redirects non-diagnostic sessions to `/`.
-- `src/app/(diagnostic-flow)/post-session/[sessionId]/content.tsx` (NEW) — `<OnboardingTargets>` form.
-- `src/app/(diagnostic-flow)/post-session/[sessionId]/actions.ts` (NEW) — re-exports `saveOnboardingTargets` from commit 1's `(app)/actions.ts` for action colocation, OR moves the action to this file (author's call; either works).
+- `src/app/(diagnostic-flow)/post-session/[sessionId]/page.tsx` (NEW) — server component, redirects non-diagnostic sessions to `/`. Imports `saveOnboardingTargets` directly from `src/app/(app)/actions.ts` (the action lives with other user-state writes; it is NOT moved or re-exported into the diagnostic-flow group). The action's reach into `users` is global, not diagnostic-specific.
+- `src/app/(diagnostic-flow)/post-session/[sessionId]/content.tsx` (NEW) — `<OnboardingTargets>` form, calls the imported `saveOnboardingTargets`.
+- `src/app/login/page.tsx` — **NOT new; pre-exists from Phase 1/2** (a single-button Google sign-in via `signIn("google", { redirectTo: "/" })`). No commit-4 modification. Both `(app)/layout.tsx` and `(diagnostic-flow)/layout.tsx` redirect to it for unauthenticated users; verified the page exists before commit 4 begins so the redirects do not 404.
 - `src/components/post-session/onboarding-targets.tsx` (NEW) — the form component.
 - `src/components/post-session/post-session-shell.tsx` (NEW) — minimal shell that renders the form + the substantive overtime-note text.
 
