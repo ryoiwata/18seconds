@@ -73,3 +73,6 @@ scripts/_logs/*.jsonl
 # OCR pipeline stage-1 outputs — created on first stage-1 run, never committed.
 # See docs/plans/opaque-option-ids-and-pipeline-split.md §5.3 for lifecycle.
 scripts/_stage1/
+
+# Claude Code's playwright MCP scratch dir (console logs, snapshots).
+.playwright-mcp/

@@ -25,12 +25,21 @@ interface ItemSlotProps {
 }
 
 function ItemSlot(props: ItemSlotProps) {
-	const onMounted = props.onMounted
+	// Latest-callback ref pattern. The mount effect below has truly empty
+	// deps so it runs exactly once per mount — and since this component
+	// is keyed on item.id by the parent, "once per mount" is "once per
+	// item swap." Listing `props.onMounted` in the deps array would re-run
+	// the effect any render the parent passes an inline closure (it does),
+	// which dispatches set_question_started → state update → re-render →
+	// infinite loop. The ref keeps the effect's identity stable while
+	// still calling the latest callback.
+	const onMountedRef = React.useRef(props.onMounted)
+	React.useEffect(function syncOnMountedRef() {
+		onMountedRef.current = props.onMounted
+	})
 	React.useEffect(function captureFirstPaint() {
-		// Empty deps: re-runs on every mount, which is one mount per
-		// keyed item swap. The component above sets the React key.
-		onMounted(performance.now())
-	}, [onMounted])
+		onMountedRef.current(performance.now())
+	}, [])
 
 	return (
 		<ItemPrompt
