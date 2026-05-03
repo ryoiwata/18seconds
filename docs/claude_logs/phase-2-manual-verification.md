@@ -24,10 +24,18 @@ bun run db:seed:items
 
 The script is idempotent — re-running it after an initial seed will skip every existing row and exit clean.
 
+**The seed deliberately leaves `embedding=NULL` on every inserted row.** It runs as a raw Bun process outside Next.js, where the Workflow SDK's `"use workflow"` transform is unavailable, so the embedding-backfill workflow can't fire from this entry point. To populate embeddings, run the dedicated backfill script after seeding:
+
+```bash
+bun run scripts/backfill-missing-embeddings.ts
+```
+
+This script accesses the DB directly and calls `embedText` synchronously — no dev server required, no workflow runtime involved.
+
 Verify in psql (`PGPASSWORD=postgres psql -h localhost -p 54320 -U postgres -d postgres`):
 
 - [ ] `SELECT sub_type_id, difficulty, COUNT(*) FROM items GROUP BY sub_type_id, difficulty ORDER BY sub_type_id, difficulty;` returns 33 rows: every (`sub_type_id`, `difficulty`) cell across the 11 sub-types and 3 difficulties (easy/medium/hard) — 2/2/1 distribution per sub-type, 55 items total.
-- [ ] `SELECT COUNT(*) FROM items WHERE embedding IS NULL AND source = 'real';` → `0`.
+- [ ] After `bun run scripts/backfill-missing-embeddings.ts`: `SELECT COUNT(*) FROM items WHERE embedding IS NULL AND source = 'real';` → `0`.
 - [ ] `SELECT id, jsonb_pretty(body), options_json FROM items LIMIT 3;` returns rows with `body` shaped as `{"kind": "text", "text": "..."}` and `options_json` as `[{"id": "A", "text": "..."}, ...]`.
 - [ ] pgvector similarity sanity:
 

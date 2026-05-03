@@ -1,6 +1,6 @@
 import "@/env"
 import * as errors from "@superbuilders/errors"
-import { and, eq, isNull, sql } from "drizzle-orm"
+import { sql } from "drizzle-orm"
 import { type SubTypeId, subTypeIds } from "@/config/sub-types"
 import { db } from "@/db"
 import { items } from "@/db/schemas/catalog/items"
@@ -9,9 +9,6 @@ import { type IngestRealItemInput, ingestRealItem } from "@/server/items/ingest"
 import { seedDataBySubType } from "@/db/seeds/items/data"
 import type { SeedItemInput } from "@/db/seeds/items/types"
 import { assignOptionIds } from "@/server/items/option-id"
-
-const EMBEDDING_TIMEOUT_MS = 60_000
-const EMBEDDING_POLL_INTERVAL_MS = 1_000
 
 interface SkippedRow {
 	subTypeId: SubTypeId
@@ -69,7 +66,11 @@ async function ingestOne(seed: SeedItemInput): Promise<InsertedRow | SkippedRow>
 		return { subTypeId: seed.subTypeId, reason: "exists" }
 	}
 	const input = toIngestInput(seed)
-	const result = await errors.try(ingestRealItem(input))
+	// Skip the embedding-backfill workflow trigger: the seed runs as a raw
+	// Bun process outside Next.js context, so start(workflow, ...) would throw
+	// start-invalid-workflow-function. Items land with embedding=NULL here;
+	// run scripts/backfill-missing-embeddings.ts after seeding to populate.
+	const result = await errors.try(ingestRealItem(input, { triggerEmbeddingBackfill: false }))
 	if (result.error) {
 		logger.error(
 			{ error: result.error, subTypeId: seed.subTypeId },
@@ -78,35 +79,6 @@ async function ingestOne(seed: SeedItemInput): Promise<InsertedRow | SkippedRow>
 		throw errors.wrap(result.error, "seed ingestRealItem")
 	}
 	return { subTypeId: seed.subTypeId, itemId: result.data.itemId }
-}
-
-async function waitForEmbeddings(): Promise<void> {
-	const start = Date.now()
-	while (Date.now() - start < EMBEDDING_TIMEOUT_MS) {
-		const rows = await db
-			.select({ count: sql<number>`count(*)::int` })
-			.from(items)
-			.where(and(eq(items.source, "real"), isNull(items.embedding)))
-		const first = rows[0]
-		if (!first) {
-			logger.error("seed: count query returned no rows")
-			throw errors.new("seed: count query returned no rows")
-		}
-		if (first.count === 0) {
-			logger.info("seed: all real items have embeddings")
-			return
-		}
-		logger.info({ pending: first.count }, "seed: waiting for embeddings to land")
-		await sleep(EMBEDDING_POLL_INTERVAL_MS)
-	}
-	logger.error({ timeoutMs: EMBEDDING_TIMEOUT_MS }, "seed: embeddings did not converge in time")
-	throw errors.new("seed: embeddings did not converge in time")
-}
-
-async function sleep(ms: number): Promise<void> {
-	await new Promise<void>(function schedule(resolve) {
-		setTimeout(resolve, ms)
-	})
 }
 
 async function main(): Promise<void> {
@@ -142,9 +114,9 @@ async function main(): Promise<void> {
 	}
 
 	logger.info({ summary }, "seed: per-sub-type summary")
-
-	logger.info("seed: waiting for embeddings to converge")
-	await waitForEmbeddings()
+	logger.info(
+		"seed: items inserted with embedding=NULL — run scripts/backfill-missing-embeddings.ts to populate"
+	)
 }
 
 const result = await errors.try(main())

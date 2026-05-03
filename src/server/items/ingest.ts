@@ -97,7 +97,20 @@ function assertReferencedOptionsExist(
 	}
 }
 
-async function ingestRealItem(input: IngestRealItemInput): Promise<{ itemId: string }> {
+interface IngestRealItemOptions {
+	// Skip the embedding-backfill workflow trigger. Used by the seed loader
+	// (which runs as a raw Bun process outside Next.js context, where the
+	// Workflow SDK's "use workflow" transform does not apply and start() would
+	// throw start-invalid-workflow-function). Items inserted with
+	// triggerEmbeddingBackfill=false land with embedding=NULL; backfill them
+	// with scripts/backfill-missing-embeddings.ts.
+	triggerEmbeddingBackfill?: boolean
+}
+
+async function ingestRealItem(
+	input: IngestRealItemInput,
+	options?: IngestRealItemOptions
+): Promise<{ itemId: string }> {
 	const parsed = ingestInput.safeParse(input)
 	if (!parsed.success) {
 		logger.error(
@@ -183,20 +196,28 @@ async function ingestRealItem(input: IngestRealItemInput): Promise<{ itemId: str
 		"ingestRealItem: inserted real item"
 	)
 
-	// Trigger embedding backfill. In dev this awaits the OpenAI roundtrip; in
-	// production with Vercel Workflows the call enqueues durably and the await
-	// resolves once the workflow run is registered (steps run asynchronously).
-	const backfillResult = await errors.try(start(embeddingBackfillWorkflow, [{ itemId }]))
-	if (backfillResult.error) {
-		logger.error(
-			{ error: backfillResult.error, itemId },
-			"ingestRealItem: embedding-backfill workflow failed to start"
+	const triggerBackfill = options?.triggerEmbeddingBackfill !== false
+	if (triggerBackfill) {
+		// Trigger embedding backfill. In dev this awaits the OpenAI roundtrip; in
+		// production with Vercel Workflows the call enqueues durably and the await
+		// resolves once the workflow run is registered (steps run asynchronously).
+		const backfillResult = await errors.try(start(embeddingBackfillWorkflow, [{ itemId }]))
+		if (backfillResult.error) {
+			logger.error(
+				{ error: backfillResult.error, itemId },
+				"ingestRealItem: embedding-backfill workflow failed to start"
+			)
+			throw errors.wrap(backfillResult.error, "embeddingBackfillWorkflow")
+		}
+	} else {
+		logger.info(
+			{ itemId },
+			"ingestRealItem: skipping embedding-backfill workflow per options.triggerEmbeddingBackfill=false"
 		)
-		throw errors.wrap(backfillResult.error, "embeddingBackfillWorkflow")
 	}
 
 	return { itemId }
 }
 
-export type { IngestRealItemInput }
+export type { IngestRealItemInput, IngestRealItemOptions }
 export { ErrIngestValidation, ingestInput, ingestRealItem }
