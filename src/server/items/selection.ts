@@ -19,7 +19,7 @@ import * as errors from "@superbuilders/errors"
 import { and, eq } from "drizzle-orm"
 import { z } from "zod"
 import { type Difficulty, type SubTypeId, subTypeIds } from "@/config/sub-types"
-import { diagnosticMix } from "@/config/diagnostic-mix"
+import { shuffledDiagnosticOrder } from "@/config/diagnostic-mix"
 import { db } from "@/db"
 import { masteryState } from "@/db/schemas/practice/mastery-state"
 import { practiceSessions } from "@/db/schemas/practice/practice-sessions"
@@ -297,15 +297,22 @@ async function getNextFixedCurve(
 		throw errors.new("fixed_curve only supports diagnostic in phase 3")
 	}
 
-	const slot = diagnosticMix[attemptIndex]
+	// Per-session deterministic shuffle: same sessionId always returns the
+	// same permutation; different sessionIds produce different orders. The
+	// `(subTypeId, difficulty)` multiset is identical to `diagnosticMix` —
+	// only the order changes. Reversal of the implicit Phase 3 array-order
+	// contract per docs/plans/phase-3-polish-practice-surface-features.md
+	// §3.3 / §4.1.
+	const order = shuffledDiagnosticOrder(ctx.id)
+	const slot = order[attemptIndex]
 	if (!slot) {
 		logger.error(
-			{ sessionId: ctx.id, attemptIndex, mixSize: diagnosticMix.length },
+			{ sessionId: ctx.id, attemptIndex, mixSize: order.length },
 			"getNextFixedCurve: mix index out of range"
 		)
 		throw errors.wrap(
 			ErrDiagnosticMixOutOfRange,
-			`attemptIndex ${attemptIndex} >= ${diagnosticMix.length}`
+			`attemptIndex ${attemptIndex} >= ${order.length}`
 		)
 	}
 

@@ -1,10 +1,16 @@
 import { expect, test } from "bun:test"
 import { computeMastery, median, sourceParams } from "@/server/mastery/compute"
 
-test("sourceParams: diagnostic enforces 3-attempt threshold and 1.5x latency", function checkDiagnostic() {
+test("sourceParams: diagnostic enforces 3-attempt threshold and 1.2x latency", function checkDiagnostic() {
+	// 1.2× recalibrated from 1.5× per
+	// docs/plans/phase-3-polish-practice-surface-features.md §3.1 (the
+	// 15-minute hard-cutoff makes the original "untimed capacity
+	// baseline" framing wrong; 1.2× still acknowledges first-exposure
+	// novelty without over-crediting fast-but-careless attempts under
+	// hard pressure).
 	const p = sourceParams("diagnostic")
 	expect(p.minAttempts).toBe(3)
-	expect(p.latencyMultiplier).toBe(1.5)
+	expect(p.latencyMultiplier).toBe(1.2)
 	expect(p.allowMastered).toBe(false)
 })
 
@@ -97,10 +103,35 @@ test("computeMastery: ongoing source returns decayed when previously mastered an
 	expect(result).toBe("decayed")
 })
 
-test("computeMastery: diagnostic with 1.5x latency relaxation passes a slower user", function diagnosticLatencyRelaxation() {
-	// Threshold 18s × 1.5 = 27s. User median latency 25s passes the relaxation.
-	// 8/10 accuracy + median 25s ≤ 27s → would be `mastered` if allowMastered;
-	// but diagnostic caps at fluent.
+test("computeMastery: diagnostic high-accuracy slow user lands fluent under 1.2x (was already fluent under 1.5x — verdict invariant for diagnostic)", function diagnosticHighAccuracySlow() {
+	// DEVIATION FROM PLAN §4.3 — documented in commit 1's report.
+	//
+	// Plan §4.3 asserted an "over-credit case (a)": same input that
+	// lands `fluent` under 1.5× would fall to `learning` under 1.2×.
+	// That premise was wrong. Tracing the current `computeMastery`
+	// branch logic for diagnostic source:
+	//
+	//   - For accuracy ≥ 0.8: result is `fluent` regardless of
+	//     `medianLatency vs adjustedThreshold`. The `mastered` branch
+	//     is masked by `allowMastered: false`, and BOTH the
+	//     "high-acc + slow" branch and the "high-acc + fast" branch
+	//     return `fluent` (the latter via the explicit diagnostic-cap
+	//     branch at the bottom of computeMastery).
+	//   - For accuracy < 0.8: result is `learning` regardless of
+	//     latency multiplier (the multiplier doesn't gate anything for
+	//     this branch).
+	//
+	// So the multiplier has NO effect on diagnostic verdicts under the
+	// current branch logic. The 1.5 → 1.2 change is a documented
+	// recalibration that would matter if the branch logic ever
+	// distinguishes between the two paths (e.g., a future "high-acc +
+	// slow but within-relaxation" branch that rewards `fluent` more
+	// strongly than "high-acc + slow + outside-relaxation").
+	//
+	// This test pins the current behavior: high-accuracy + slow yields
+	// `fluent` under the 1.2× multiplier. If a future change makes the
+	// multiplier load-bearing for diagnostic, this test surfaces the
+	// new behavior at the same input.
 	const result = computeMastery({
 		last10Correct: [true, true, true, true, true, true, true, true, false, false],
 		last10LatencyMs: [25_000, 25_000, 25_000, 25_000, 25_000, 25_000, 25_000, 25_000, 25_000, 25_000],
@@ -109,6 +140,22 @@ test("computeMastery: diagnostic with 1.5x latency relaxation passes a slower us
 		source: "diagnostic"
 	})
 	expect(result).toBe("fluent")
+})
+
+test("computeMastery: diagnostic floor case — slow + inaccurate stays learning under any multiplier", function diagnosticFloorCase() {
+	// Plan §4.3 floor case: low accuracy AND slow latency lands
+	// `learning` regardless of latency multiplier. 4/10 accuracy fails
+	// the accuracy gate; the multiplier is irrelevant. This test pins
+	// the floor — even if the multiplier moves, this case must stay
+	// `learning`.
+	const result = computeMastery({
+		last10Correct: [true, true, true, true, false, false, false, false, false, false],
+		last10LatencyMs: [30_000, 30_000, 30_000, 30_000, 30_000, 30_000, 30_000, 30_000, 30_000, 30_000],
+		latencyThresholdMs: 18_000,
+		previousState: undefined,
+		source: "diagnostic"
+	})
+	expect(result).toBe("learning")
 })
 
 test("computeMastery: low accuracy → learning regardless of source", function lowAccuracyLearning() {

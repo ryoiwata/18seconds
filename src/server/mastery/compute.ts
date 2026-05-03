@@ -4,9 +4,12 @@
 // to derive the next state.
 //
 // SPEC §9.3, plus the diagnostic-source rules from §3.9 of
-// docs/plans/phase-3-practice-surface.md:
-// - diagnostic source: 3-attempt threshold, 1.5× latency relaxation,
-//   `mastered` is never assigned (capped at `fluent`).
+// docs/plans/phase-3-practice-surface.md (latency multiplier
+// recalibrated by docs/plans/phase-3-polish-practice-surface-features.md
+// §3.1):
+// - diagnostic source: 3-attempt threshold, 1.2× latency relaxation
+//   (was 1.5× before the 15-minute hard cutoff), `mastered` is never
+//   assigned (capped at `fluent`).
 // - ongoing source: standard 5-attempt threshold, 1.0× latency, `mastered`
 //   reachable.
 //
@@ -33,7 +36,8 @@ interface SourceParams {
 
 function sourceParams(s: MasterySource): SourceParams {
 	if (s === "diagnostic") {
-		return { minAttempts: 3, latencyMultiplier: 1.5, allowMastered: false }
+		// 1.2× per docs/plans/phase-3-polish-practice-surface-features.md §3.1 — calibrated for 15-min cutoff, was 1.5 under the original untimed framing.
+		return { minAttempts: 3, latencyMultiplier: 1.2, allowMastered: false }
 	}
 	if (s === "ongoing") {
 		return { minAttempts: 5, latencyMultiplier: 1.0, allowMastered: true }

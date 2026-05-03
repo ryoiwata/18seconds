@@ -19,6 +19,7 @@ import { db } from "@/db"
 import { attempts } from "@/db/schemas/practice/attempts"
 import { logger } from "@/logger"
 import { getNextItem, type FallbackLevel, type ItemForRender, type ItemSelection } from "@/server/items/selection"
+import { DIAGNOSTIC_SESSION_DURATION_MS } from "@/server/sessions/diagnostic-cutoff"
 import { ErrSessionAlreadyEnded, readItemAnswerAndDifficulty, readSession } from "@/server/sessions/queries"
 
 const ErrLatencyAnchorBroken = errors.new("latency anchor produced an out-of-band value")
@@ -150,6 +151,32 @@ async function submitAttempt(input: SubmitAttemptInput): Promise<SubmitAttemptRe
 		},
 		"submitAttempt: attempt inserted"
 	)
+
+	// 15-minute hard cutoff for diagnostic sessions. Server is the source
+	// of truth: if the session has run past the threshold by the time
+	// this submit lands, we end the session here without consulting the
+	// selection engine. The attempt row above is already written, so the
+	// user's last submit always counts (option-(a) UX from
+	// docs/plans/phase-3-polish-practice-surface-features.md §3.1).
+	//
+	// Only diagnostic sessions are timed in Phase 3 polish. Drill,
+	// full-length, simulation, and review have their own session-length
+	// semantics and are not gated here.
+	if (sessionRow.type === "diagnostic") {
+		const elapsedMs = Date.now() - sessionRow.startedAtMs
+		if (elapsedMs >= DIAGNOSTIC_SESSION_DURATION_MS) {
+			logger.info(
+				{
+					sessionId: data.sessionId,
+					elapsedMs,
+					sessionDurationMs: DIAGNOSTIC_SESSION_DURATION_MS,
+					attemptId: inserted.id
+				},
+				"submitAttempt: diagnostic exceeded 15-minute cutoff, ending session"
+			)
+			return {}
+		}
+	}
 
 	const nextItem = await getNextItem(data.sessionId)
 	if (nextItem === undefined) {

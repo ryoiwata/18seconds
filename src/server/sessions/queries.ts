@@ -14,18 +14,28 @@ const ErrItemNotFound = errors.new("item not found")
 const ErrSessionNotFound = errors.new("session not found")
 const ErrSessionAlreadyEnded = errors.new("session already ended")
 
+type SessionType = "diagnostic" | "drill" | "full_length" | "simulation" | "review"
+
 interface SessionRow {
 	id: string
 	userId: string
+	type: SessionType
+	startedAtMs: number
 	endedAtMs: number | null
 }
 
+// `type` and `startedAtMs` were added by Phase 3 polish commit 1 so the
+// 15-minute hard-cutoff check in `submitAttempt` can derive elapsed
+// time without a second SQL round-trip. See
+// docs/plans/phase-3-polish-practice-surface-features.md §4.2.
 async function readSession(sessionId: string): Promise<SessionRow> {
 	const result = await errors.try(
 		db
 			.select({
 				id: practiceSessions.id,
 				userId: practiceSessions.userId,
+				type: practiceSessions.type,
+				startedAtMs: practiceSessions.startedAtMs,
 				endedAtMs: practiceSessions.endedAtMs
 			})
 			.from(practiceSessions)
@@ -72,5 +82,5 @@ async function readItemAnswerAndDifficulty(itemId: string): Promise<ItemAnswer> 
 	return row
 }
 
-export type { ItemAnswer, SessionRow }
+export type { ItemAnswer, SessionRow, SessionType }
 export { ErrItemNotFound, ErrSessionAlreadyEnded, ErrSessionNotFound, readItemAnswerAndDifficulty, readSession }
