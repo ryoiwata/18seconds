@@ -123,3 +123,25 @@
 		@apply bg-background text-foreground;
 	}
 }
+
+@theme {
+	/*
+	 * Focus-shell timer-bar depletion animation. Bar starts at scaleX=1
+	 * and shrinks toward its right edge as time elapses; transform-origin
+	 * is set on the element via Tailwind's `origin-right`. Per-element
+	 * `animation-duration` is set via Tailwind arbitrary-value classes
+	 * `[animation-duration:NNNNNms]` from a small enumerated set:
+	 * 18000ms (per-question target), 90000ms / 180000ms / 360000ms
+	 * (5/10/20-question drill sessions), 900000ms (full-length — Phase 5).
+	 * See src/components/focus-shell/timer-bar.tsx.
+	 */
+	@keyframes shrink-bar {
+		from {
+			transform: scaleX(1);
+		}
+		to {
+			transform: scaleX(0);
+		}
+	}
+	--animate-shrink-bar: shrink-bar linear forwards;
+}
