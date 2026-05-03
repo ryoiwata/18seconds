@@ -103,43 +103,57 @@ test("computeMastery: ongoing source returns decayed when previously mastered an
 	expect(result).toBe("decayed")
 })
 
-test("computeMastery: diagnostic high-accuracy slow user lands fluent under 1.2x (was already fluent under 1.5x — verdict invariant for diagnostic)", function diagnosticHighAccuracySlow() {
-	// DEVIATION FROM PLAN §4.3 — documented in commit 1's report.
+test("computeMastery: diagnostic-source decayed path — previously-mastered re-take diverges between 1.2× and 1.5×", function diagnosticDecayedReTakeMultiplierLoadBearing() {
+	// Diagnostic-source decayed path. A previously-mastered user re-taking
+	// the diagnostic with a median latency between the two adjusted-threshold
+	// values (12000ms under 1.2×, 15000ms under 1.5×) lands in different
+	// verdicts. This is the actually-load-bearing case for the
+	// latencyMultiplier parameter in diagnostic source — the
+	// first-time-diagnostic over-credit case the original plan §3.1
+	// described does not exist (Branches 3 + 4 of computeMastery both
+	// return 'fluent' for first-time high-accuracy users regardless of
+	// multiplier; only the previousState='mastered' decayed branch is
+	// multiplier-dependent under diagnostic source).
 	//
-	// Plan §4.3 asserted an "over-credit case (a)": same input that
-	// lands `fluent` under 1.5× would fall to `learning` under 1.2×.
-	// That premise was wrong. Tracing the current `computeMastery`
-	// branch logic for diagnostic source:
+	// See docs/plans/phase-3-polish-practice-surface-features.md §3.1
+	// (slated for correction in Commit D's plan-edit batch).
 	//
-	//   - For accuracy ≥ 0.8: result is `fluent` regardless of
-	//     `medianLatency vs adjustedThreshold`. The `mastered` branch
-	//     is masked by `allowMastered: false`, and BOTH the
-	//     "high-acc + slow" branch and the "high-acc + fast" branch
-	//     return `fluent` (the latter via the explicit diagnostic-cap
-	//     branch at the bottom of computeMastery).
-	//   - For accuracy < 0.8: result is `learning` regardless of
-	//     latency multiplier (the multiplier doesn't gate anything for
-	//     this branch).
-	//
-	// So the multiplier has NO effect on diagnostic verdicts under the
-	// current branch logic. The 1.5 → 1.2 change is a documented
-	// recalibration that would matter if the branch logic ever
-	// distinguishes between the two paths (e.g., a future "high-acc +
-	// slow but within-relaxation" branch that rewards `fluent` more
-	// strongly than "high-acc + slow + outside-relaxation").
-	//
-	// This test pins the current behavior: high-accuracy + slow yields
-	// `fluent` under the 1.2× multiplier. If a future change makes the
-	// multiplier load-bearing for diagnostic, this test surfaces the
-	// new behavior at the same input.
-	const result = computeMastery({
-		last10Correct: [true, true, true, true, true, true, true, true, false, false],
-		last10LatencyMs: [25_000, 25_000, 25_000, 25_000, 25_000, 25_000, 25_000, 25_000, 25_000, 25_000],
-		latencyThresholdMs: 18_000,
-		previousState: undefined,
+	// `computeMastery` reads the multiplier from sourceParams('diagnostic')
+	// internally — there's no parameter to inject a different multiplier.
+	// To exercise the "what would have happened under 1.5×" branch, this
+	// test scales `latencyThresholdMs` by 1.25 (= 1.5 / 1.2) so the
+	// effective `adjustedThreshold = threshold × 1.2` lands at the same
+	// 15000ms that 1.5× × 10000ms would produce. Same input shape, same
+	// branch logic, both multiplier values exercised.
+
+	// Under the active 1.2× multiplier (sourceParams('diagnostic')):
+	//   adjustedThreshold = 10000 × 1.2 = 12000 ms
+	//   medianLatency 14000 > 12000 → decayed (Branch 2 fires)
+	const under12 = computeMastery({
+		last10Correct: [true, true, true, true, false],
+		last10LatencyMs: [14_000, 14_000, 14_000, 14_000, 14_000],
+		latencyThresholdMs: 10_000,
+		previousState: "mastered",
 		source: "diagnostic"
 	})
-	expect(result).toBe("fluent")
+	expect(under12).toBe("decayed")
+
+	// Same input but with `latencyThresholdMs` raised so the effective
+	// adjusted threshold matches what 1.5× would have produced:
+	//   adjusted = 12500 × 1.2 = 15000 ms (= 10000 × 1.5)
+	//   medianLatency 14000 ≤ 15000 → decayed gate fails → falls
+	//   through to Branch 4 (diagnostic-cap fluent).
+	// This empirically confirms the multiplier IS load-bearing on this
+	// branch — same accuracy, same latency, different effective
+	// adjusted-threshold → different verdict.
+	const under15Equivalent = computeMastery({
+		last10Correct: [true, true, true, true, false],
+		last10LatencyMs: [14_000, 14_000, 14_000, 14_000, 14_000],
+		latencyThresholdMs: 12_500,
+		previousState: "mastered",
+		source: "diagnostic"
+	})
+	expect(under15Equivalent).toBe("fluent")
 })
 
 test("computeMastery: diagnostic floor case — slow + inaccurate stays learning under any multiplier", function diagnosticFloorCase() {

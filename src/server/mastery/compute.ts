@@ -13,6 +13,18 @@
 // - ongoing source: standard 5-attempt threshold, 1.0× latency, `mastered`
 //   reachable.
 //
+// Where the multiplier is load-bearing for diagnostic source: the
+// `decayed` branch only. A first-time diagnostic user with accuracy ≥ 0.8
+// lands `fluent` regardless of multiplier (Branches 3 + 4 both return
+// `fluent` because `allowMastered: false` masks the `mastered` branch).
+// A previously-mastered user re-taking the diagnostic with median
+// latency between the two adjusted thresholds (12000ms under 1.2×,
+// 15000ms under 1.5×) lands `decayed` under 1.2× and `fluent` under
+// 1.5×. The 1.5 → 1.2 swap correctly surfaces rust in re-take users
+// rather than letting them coast as `fluent`. See the
+// `diagnosticDecayedReTakeMultiplierLoadBearing` test in
+// compute.test.ts for the contract.
+//
 // The function is total over the input space — no `?` returns, no throws.
 // Every reachable (state × source × counts × accuracy × latency) tuple maps
 // to exactly one MasteryLevel.
