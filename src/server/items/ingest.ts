@@ -16,7 +16,6 @@ const optionSchema = z.object({
 })
 
 const explanationPartKind = z.enum(["recognition", "elimination", "tie-breaker"])
-const optionLetter = z.enum(["A", "B", "C", "D", "E"])
 
 const structuredExplanation = z
 	.object({
@@ -25,7 +24,7 @@ const structuredExplanation = z
 				z.object({
 					kind: explanationPartKind,
 					text: z.string().min(1),
-					referencedOptions: z.array(optionLetter)
+					referencedOptions: z.array(z.string())
 				})
 			)
 			.min(2)

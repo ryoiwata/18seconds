@@ -36,7 +36,7 @@ const requestSchema = z.object({
 							z.object({
 								kind: z.enum(["recognition", "elimination", "tie-breaker"]),
 								text: z.string().min(1),
-								referencedOptions: z.array(z.enum(["A", "B", "C", "D", "E"]))
+								referencedOptions: z.array(z.string())
 							})
 						)
 						.min(2)

@@ -9,7 +9,6 @@ const BodyText = z.object({
 const ItemBody = z.discriminatedUnion("kind", [BodyText])
 
 const Option = z.object({
-	id: z.string().min(1),
 	text: z.string().min(1)
 })
 
@@ -34,7 +33,7 @@ const COMMON_SYSTEM = [
 	"You are generating a single Criteria Cognitive Aptitude Test (CCAT) practice item for an adult test-prep app.",
 	"The CCAT gives the user roughly 18 seconds per question.",
 	"Output must validate against the provided JSON schema. No prose outside the JSON.",
-	"Provide between 4 and 5 options, each with a unique short id (e.g. 'a','b','c','d') and the option text.",
+	"Provide between 4 and 5 options, each with just its text; the system will assign ids.",
 	"correctAnswer must equal exactly one of the option ids.",
 	"explanation must be one or two sentences explaining why the answer is correct."
 ].join(" ")
