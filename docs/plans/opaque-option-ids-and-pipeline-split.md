@@ -1,5 +1,7 @@
 # Plan — Opaque option ids + OCR pipeline split (v2)
 
+> **Status: implemented as of 2026-05-02 (commits `cb45ce6..cee3b74`, plus the doc commit that follows).** This document is the canonical reference for the option-id encoding and the OCR pipeline topology. Where it disagrees with the older `ocr-import-screenshots.md`, this plan wins.
+
 Two coupled architectural changes to land before more OCR imports run. The opaque-option-ids change replaces today's `id: "A"|"B"|"C"|"D"|"E"` shape with server-generated short random strings; the pipeline-split change separates `scripts/import-screenshots.ts` into a stage-1 question-extraction script, a stage-2 explanation-generation script, and a stage-3 regeneration script.
 
 This plan partially supersedes `docs/plans/ocr-import-screenshots.md`. Where the two conflict, this one wins. The OCR plan's substantive design (idempotency model, the four-pass LLM contract, the structured-explanation contract, the canonical 5-image dry-run) carries forward unchanged; only the script topology and the option-id shape change.

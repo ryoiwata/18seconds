@@ -1,5 +1,9 @@
 # Plan — `scripts/import-screenshots.ts` (OCR import for CCAT screenshots)
 
+> **⚠️ Partially superseded.** As of 2026-05-02, this plan is partially superseded by [`opaque-option-ids-and-pipeline-split.md`](opaque-option-ids-and-pipeline-split.md). The two structural changes — opaque option ids replacing letter ids, and the single `import-screenshots.ts` script splitting into stage 1 (`import-questions.ts`) / stage 2 (`generate-explanations.ts`) / stage 3 (`regenerate-explanations.ts`) — landed in commits `cb45ce6..cee3b74`. The substantive design from this plan (idempotency model, four-pass LLM contract, structured-explanation contract, canonical 5-image dry-run, sub-type style hints, provenance via `metadata_json.importSource` and `originalExplanation`) carries forward unchanged into the new scripts; only the topology and the option-id encoding changed.
+>
+> Where this plan and the v2 plan disagree on **script topology** (one script vs three) or **option-id shape** (letters vs opaque base32), the v2 plan is canonical. Everywhere else, this plan is still the design reference. The "Operating procedure" section below has been rewritten to reflect the new 6-step workflow.
+
 Batch importer that turns a folder of CCAT question PNGs into rows in the `items` bank by POSTing each screenshot's extracted content through the existing `/api/admin/ingest-item` route. Standalone Bun script; not part of the app's source tree.
 
 This revision changes two things from the previous draft:
@@ -565,20 +569,43 @@ For a future run with a new test-bank source: repeat from Step 1. The 5-image ca
 
 ## Operating procedure (the runbook)
 
-This section is the persistent operational guide for running the script — the answer to "I have a new batch of screenshots, what do I do?"
+> **Updated to the v2 (split) topology.** The original 4-step procedure has been replaced by a 6-step workflow that maps to the stage-1 / stage-2 split. The substance is unchanged — extraction, solve+verify, explain, POST, spot-check — but the steps are now distributed across two commands so that question-state and explanation-state can be reviewed and re-run independently.
+
+This section is the persistent operational guide for running the OCR pipeline — the answer to "I have a new batch of screenshots, what do I do?"
 
 1. **Drop the new screenshots into `data/testbank/<new-source-name>/`.** Use a descriptive directory name (e.g., `prep_co_practice_1`, `criteria_official_2026`). Confirm `data/testbank/` is in `.gitignore` (it is — but worth checking before adding sensitive material).
-2. **Run the canonical 5-image dry-run** (§"Test plan → Step 1"). Review the output. If quality is acceptable, proceed.
-3. **Confirm the dev server is running** (`bun dev` in another terminal) and that the local Postgres container is up (`docker compose ps`). Confirm `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `CRON_SECRET` are populated in `.env`.
-4. **Run the full import on the new directory:**
+2. **Run the canonical 5-image dry-run on stage 1**:
    ```bash
-   bun run scripts/import-screenshots.ts data/testbank/<new-source-name>
+   bun run scripts/import-questions.ts data/testbank --dry-run --sample --limit 5
    ```
-5. **Review the end-of-run summary** for failures. Manually inspect entries in `needs-review.jsonl` against the source PNG; for each, either ingest the corrected version through `/admin/ingest` or accept the loss.
-6. **Spot-check 20 items** via the provenance SQL query. Compare against the source explanation when present.
-7. **Optional: prune the new `_logs/` entries** if you want to keep the log lean — but **never delete `imported.jsonl`** without consciously deciding to allow re-imports, since the SHA-256 hashes there are the only thing preventing duplicates from a re-run.
+   Reviews extraction quality and the solve+verify path. No explain calls fire, no stage-1 files are written. The deterministic sample draws from the union of all subdirectories of `data/testbank/`, so older sources are cross-checked against the latest extract prompt automatically.
+3. **Run stage 1 for real on the new directory:**
+   ```bash
+   bun run scripts/import-questions.ts data/testbank/<new-source-name>
+   ```
+   Watches end-of-run summary for `extract-failures.jsonl`, `needs-review.jsonl`, `skipped.jsonl`. Stage-1 JSON files land in `scripts/_stage1/<new-source-name>/`. Idempotency is file-presence-based: re-running the command is safe; only screenshots without an existing stage-1 JSON are re-extracted. Manually `rm` the stage-1 file to force a re-extract.
+4. **Run the canonical 5-image dry-run on stage 2:**
+   ```bash
+   bun run scripts/generate-explanations.ts --dry-run --sample --limit 5
+   ```
+   Reviews explanation quality against the stage-1 JSON files (which already include opaque option ids). Compares prose against `originalExplanation` where present. The dry-run still calls the explain LLM — only the POST and the `imported.jsonl` append are skipped.
+5. **Run stage 2 for real:**
+   ```bash
+   bun run scripts/generate-explanations.ts
+   ```
+   Confirm the dev server is running (`bun dev` in another terminal) and `ANTHROPIC_API_KEY` + `CRON_SECRET` are populated in `.env`. The script POSTs each stage-1 JSON's item to the ingest route and appends to `imported.jsonl` (now keyed on `sourceImageHash`). Watch the summary for `explanation-failures.jsonl` and `ingest-failures.jsonl`.
+6. **Spot-check 20 items** via the provenance SQL query (§"Provenance"). Compare against the source explanation when present.
 
-The procedure is the same for the very first ~300-image import and for every subsequent expansion. There is no special-casing for "first run."
+For a future run with a new test-bank source: repeat from step 1. The 5-image canonical samples for both stages now draw from the union of old + new images, so prompt edits are cross-validated against older sources.
+
+**Reset semantics:** if a source needs reimporting, the reset is now in two layers:
+- **Stage 1:** delete the corresponding subdirectory under `scripts/_stage1/`. The next stage-1 run re-extracts.
+- **Stage 2:** delete the relevant entries from `scripts/_logs/imported.jsonl`. The next stage-2 run re-runs explain + POST against the stage-1 files for those entries.
+Don't delete the entire `imported.jsonl` unless you actually want to reimport from scratch — it's the source of truth for "what's already in the bank from this script."
+
+**For the very first migration-completion run (immediately after the schema migration in commits 1-3 of [`opaque-option-ids-and-pipeline-split.md`](opaque-option-ids-and-pipeline-split.md)):** purge `scripts/_stage1/` and `scripts/_logs/imported.jsonl` if any pre-migration content exists, since pre-migration stage-1 JSON files would contain letter ids that the post-migration validation rejects.
+
+**Stage 3 (regenerate-explanations):** reserved for future use. When the explain prompt changes meaningfully, run `bun run scripts/regenerate-explanations.ts --dry-run --limit 5 --sub-type <id>` to preview, then drop `--dry-run` to apply. See `opaque-option-ids-and-pipeline-split.md` §4.1 for the full design.
 
 ## Decisions
 
