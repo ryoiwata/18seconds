@@ -8,7 +8,7 @@
 // returns one of those letters. The caller translates the letter back to
 // an opaque option id by array index.
 
-import Anthropic from "@anthropic-ai/sdk"
+import type Anthropic from "@anthropic-ai/sdk"
 import { z } from "zod"
 import {
 	client,

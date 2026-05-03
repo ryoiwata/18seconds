@@ -9,7 +9,7 @@
 // (A-E) when answerVisible=true; that letter is a *positional* reference
 // into the options array and gets translated to an opaque id by the caller.
 
-import Anthropic from "@anthropic-ai/sdk"
+import type Anthropic from "@anthropic-ai/sdk"
 import { Buffer } from "node:buffer"
 import * as path from "node:path"
 import { z } from "zod"

@@ -29,9 +29,11 @@ import { createAdminDb } from "@/db/admin"
 import { authSessions } from "@/db/schemas/auth/sessions"
 import { logger } from "@/logger"
 
-const CHROMIUM_PATH =
-	process.env.CHROMIUM_PATH ??
-	`${process.env.HOME}/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome`
+// Hardcoded against the chromium binary the Claude MCP installs locally.
+// No `process.env` (biome `noProcessEnv` ban) and no `??` fallback (project
+// rule banning nullish coalescing). If you run this in a CI box where the
+// path differs, edit this constant — there is no env override by design.
+const CHROMIUM_PATH = `${Bun.env.HOME}/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome`
 
 const SESSION_TOKEN = `phase3-c2-smoke-${Date.now()}`
 const TARGET_USER_ID = "dd2d98ab-e015-4892-84d0-1c12754028cf"
@@ -60,7 +62,14 @@ async function ensureSession(): Promise<void> {
 
 async function deleteSession(): Promise<void> {
 	await using adminDb = await createAdminDb()
-	await errors.try(adminDb.db.delete(authSessions).where(eq(authSessions.sessionToken, SESSION_TOKEN)))
+	const result = await errors.try(
+		adminDb.db.delete(authSessions).where(eq(authSessions.sessionToken, SESSION_TOKEN))
+	)
+	if (result.error) {
+		// Cleanup is best-effort — log the failure for the test log but
+		// don't throw, so the smoke harness still exits cleanly.
+		logger.warn({ error: result.error, sessionToken: SESSION_TOKEN }, "deleteSession: cleanup failed")
+	}
 }
 
 interface ConsoleEntry {
@@ -172,8 +181,8 @@ async function runSmoke(): Promise<SmokeOutput> {
 
 	const navResult = await errors.try(page.goto(SMOKE_URL, { waitUntil: "domcontentloaded", timeout: 15_000 }))
 	if (navResult.error) {
-		logger.error({ error: navResult.error, url: SMOKE_URL }, "page.goto failed")
 		await browser.close()
+		logger.error({ error: navResult.error, url: SMOKE_URL }, "page.goto failed")
 		throw errors.wrap(navResult.error, "page.goto")
 	}
 	const response = navResult.data
@@ -211,9 +220,13 @@ async function runSmoke(): Promise<SmokeOutput> {
 		await page.waitForTimeout(500)
 		const debugText = await page.locator("aside[aria-label='smoke debug']").innerText().catch(function onErr() { return "" })
 		const match = debugText.match(/items submitted: (\d+)/)
-		if (match) submitsLogged = Number.parseInt(match[1] ?? "0", 10)
+		if (match && match[1] !== undefined) {
+			submitsLogged = Number.parseInt(match[1], 10)
+		}
 		const latencyMatch = debugText.match(/latency=(\d+)ms/)
-		if (latencyMatch) firstSubmitLatencyMs = Number.parseInt(latencyMatch[1] ?? "0", 10)
+		if (latencyMatch && latencyMatch[1] !== undefined) {
+			firstSubmitLatencyMs = Number.parseInt(latencyMatch[1], 10)
+		}
 		logger.info({ debugText, firstSubmitLatencyMs }, "post-submit debug card")
 	}
 

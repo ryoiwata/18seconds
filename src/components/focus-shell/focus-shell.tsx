@@ -192,7 +192,8 @@ function FocusShell(props: FocusShellProps) {
 				return
 			}
 			const key = event.key
-			const isTriage = key === "T" || key === "t"
+			const lowerKey = key.toLowerCase()
+			const isTriage = lowerKey === "t"
 			const isEnter = key === "Enter"
 			if (!isTriage && !isEnter) return
 			event.preventDefault()

@@ -38,7 +38,11 @@ import { users } from "@/db/schemas/auth/users"
 import { env } from "@/env"
 import { logger } from "@/logger"
 
-const APP_BASE = process.env.APP_BASE ?? "http://localhost:3000"
+// Hardcoded — no `process.env` (biome `noProcessEnv` ban) and no `??`
+// fallback (project rule banning nullish coalescing). Cron + heartbeat
+// always run against the local dev server; if you need a different host,
+// edit this constant.
+const APP_BASE = "http://localhost:3000"
 const STALE_AGO_MS = 600_000
 const INFLIGHT_AGO_MS = 100_000
 const HEARTBEAT_GRACE_MS = 30_000
@@ -62,7 +66,10 @@ async function setup(): Promise<SmokeContext> {
 		throw errors.wrap(userResult.error, "user insert")
 	}
 	const u = userResult.data[0]
-	if (!u) throw errors.new("smoke: user insert returned no rows")
+	if (!u) {
+		logger.error({ email }, "smoke: user insert returned no rows")
+		throw errors.new("smoke: user insert returned no rows")
+	}
 
 	const nowMs = Date.now()
 	const staleHb = nowMs - STALE_AGO_MS
@@ -85,7 +92,10 @@ async function setup(): Promise<SmokeContext> {
 		throw errors.wrap(staleResult.error, "stale insert")
 	}
 	const stale = staleResult.data[0]
-	if (!stale) throw errors.new("smoke: stale insert returned no rows")
+	if (!stale) {
+		logger.error({ userId: u.id }, "smoke: stale insert returned no rows")
+		throw errors.new("smoke: stale insert returned no rows")
+	}
 
 	const infResult = await errors.try(
 		adminDb.db
@@ -104,7 +114,10 @@ async function setup(): Promise<SmokeContext> {
 		throw errors.wrap(infResult.error, "inflight insert")
 	}
 	const inf = infResult.data[0]
-	if (!inf) throw errors.new("smoke: inflight insert returned no rows")
+	if (!inf) {
+		logger.error({ userId: u.id }, "smoke: inflight insert returned no rows")
+		throw errors.new("smoke: inflight insert returned no rows")
+	}
 
 	logger.info(
 		{
@@ -149,10 +162,14 @@ async function readSession(id: string): Promise<{
 			.limit(1)
 	)
 	if (result.error) {
+		logger.error({ error: result.error, sessionId: id }, "readSession: query failed")
 		throw errors.wrap(result.error, "readSession")
 	}
 	const row = result.data[0]
-	if (!row) throw errors.new(`session ${id} not found`)
+	if (!row) {
+		logger.error({ sessionId: id }, "readSession: session not found")
+		throw errors.new(`session ${id} not found`)
+	}
 	return row
 }
 

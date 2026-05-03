@@ -5,7 +5,7 @@
 // (generate-explanations) and stage 3 (regenerate-explanations).
 // EXEMPT FROM THE PROJECT RULESET.
 
-import Anthropic from "@anthropic-ai/sdk"
+import type Anthropic from "@anthropic-ai/sdk"
 import { z } from "zod"
 import type { SubTypeId } from "@/config/sub-types"
 import {

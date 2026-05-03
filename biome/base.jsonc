@@ -7,7 +7,42 @@
 	},
 	"files": {
 		"ignoreUnknown": false,
-		"includes": ["**", "!**/src/components/ui", "!!node_modules", "!!.next", "!!.vercel", "!!out"],
+		"includes": [
+			"**",
+			"!**/src/components/ui",
+			"!!node_modules",
+			"!!.next",
+			"!!.vercel",
+			"!!out",
+			// Plugin-emitted by @workflow/next, regenerates on `bun run dev`,
+			// gitignored. Mirrors .gitignore — lint scope follows ownership scope.
+			// Phase 4's added workflow stages will emit additional files into this
+			// path; the wildcard covers them.
+			"!src/app/.well-known/workflow/**",
+			// Claude Code harness writes tracking dashboards / token logs here,
+			// gitignored. Plugin-owned, regenerates on each session — same
+			// rationale as the workflow ignore above.
+			"!.claude/tracking/**",
+			// Self-declared EXEMPT files (header: "EXEMPT FROM THE PROJECT RULESET").
+			// These files predate the current ruleset and are CI-irrelevant one-shot
+			// OCR pipeline tooling. The EXEMPT header is the contract; this list
+			// mirrors it exactly. New files in scripts/_lib/ written under the
+			// current ruleset are NOT auto-exempt — they must be added to this list
+			// explicitly to be ignored, AND must carry the EXEMPT header. The two
+			// requirements have to match: header without ignore = lint failure;
+			// ignore without header = drift.
+			"!scripts/_lib/anthropic.ts",
+			"!scripts/_lib/explain.ts",
+			"!scripts/_lib/extract.ts",
+			"!scripts/_lib/logs.ts",
+			"!scripts/_lib/sample.ts",
+			"!scripts/_lib/solve-verify.ts",
+			"!scripts/backfill-missing-embeddings.ts",
+			"!scripts/generate-explanations.ts",
+			"!scripts/import-questions.ts",
+			"!scripts/migrate-opaque-option-ids.ts",
+			"!scripts/regenerate-explanations.ts"
+		],
 		"maxSize": 5000000
 	},
 	"formatter": {
