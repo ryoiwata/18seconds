@@ -280,7 +280,10 @@ function FocusShell(props: FocusShellProps) {
 					<div className="mb-4 flex justify-end">{chronometerNode}</div>
 				) : null}
 				{progressionBarNode}
-				{sessionBarNode !== null ? <div className="mt-1">{sessionBarNode}</div> : null}
+				{questionTimerNode !== null ? (
+					<div className="mt-2">{questionTimerNode}</div>
+				) : null}
+				{sessionBarNode !== null ? <div className="mt-2">{sessionBarNode}</div> : null}
 				<div className="mt-2 text-foreground/70 text-sm">
 					Question <strong className="text-foreground">{questionNumber}</strong>
 					{" / "}
@@ -289,12 +292,12 @@ function FocusShell(props: FocusShellProps) {
 				</div>
 				<hr className="mt-3 border-foreground/10" />
 
-				{/* content area — per-question timer as framing chrome
-				    above the question, then the question text + options
-				    inside <ItemSlot>, then the full-width Submit Answer
-				    CTA. */}
+				{/* content area — question text + options inside <ItemSlot>,
+				    then the full-width Submit Answer CTA. The per-question
+				    timer bar moved to the chrome row above (commit 5 of
+				    the focus-shell overhaul) so all three bars (question
+				    progression, per-question, session) stack together. */}
 				<div className="mt-8 flex flex-col gap-6">
-					{questionTimerNode}
 					{/*
 					 * LOAD-BEARING: do not remove the `key={state.currentItem.id}`
 					 * prop. The keyed mount is what re-runs <ItemSlot>'s mount

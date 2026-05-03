@@ -102,9 +102,25 @@ interface SubmitLogEntry {
 	triageTaken: boolean
 }
 
+// Read a one-shot query-string flag for the per-question timer's
+// initial visibility. Used by the focus-shell-overhaul commit-5
+// verification harness to exercise the `questionTimerVisible: false`
+// branch without modifying drill / diagnostic content components.
+// Default true; `?qt=false` flips to false. Synchronous read at
+// component initialization (no useEffect) so the FocusShell mounts
+// with the correct initial prop on the first render.
+function readInitialQuestionTimerVisible(): boolean {
+	if (typeof window === "undefined") return true
+	const url = new URL(window.location.href)
+	const qt = url.searchParams.get("qt")
+	if (qt === "false") return false
+	return true
+}
+
 function PhaseThreeSmokePage() {
 	const [submitLog, setSubmitLog] = React.useState<SubmitLogEntry[]>([])
 	const itemIndexRef = React.useRef<number>(0)
+	const [initialQuestionTimerVisible] = React.useState<boolean>(readInitialQuestionTimerVisible)
 
 	const onSubmitAttempt = React.useCallback(
 		async function onSubmitAttempt(input: SubmitAttemptInput): Promise<SubmitAttemptResult> {
@@ -150,9 +166,10 @@ function PhaseThreeSmokePage() {
 		targetQuestionCount: STUB_ITEMS.length,
 		paceTrackVisible: true,
 		// Phase 3 polish commit 2 flipped questionTimerVisible default to
-		// true so the smoke harness exercises the restyled per-question
-		// timer bar above the question text.
-		initialTimerPrefs: { sessionTimerVisible: true, questionTimerVisible: true },
+		// true; commit 5 of the focus-shell overhaul added a `?qt=false`
+		// query-string override so the verification harness can exercise
+		// both branches.
+		initialTimerPrefs: { sessionTimerVisible: true, questionTimerVisible: initialQuestionTimerVisible },
 		initialItem: firstItem,
 		strictMode: false,
 		onSubmitAttempt,
