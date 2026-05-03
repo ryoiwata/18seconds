@@ -8,9 +8,13 @@
 // large MM:SS chronometer top-right, thin session-progress bar (FILL
 // mode — grows left-to-right as the session elapses), small "Question
 // N / 50" label, thin divider, large question text, optional
-// per-question timer + 18-block depletion above the options, tall
-// option buttons, full-width "Submit Answer" CTA. Triage prompt
-// re-docked top-center per §5.4.
+// per-question timer above the options, tall option buttons,
+// full-width "Submit Answer" CTA. Triage prompt re-docked top-center
+// per §5.4.
+//
+// Focus-shell overhaul commit 2 removed the 18-block per-question
+// countdown depletion that previously sat above the question. The
+// per-question time bar (overhaul commit 5) replaces that affordance.
 //
 // Owns:
 // - the useReducer state (shell-reducer.ts)
@@ -26,9 +30,9 @@
 // Renders:
 // - chrome row: chronometer top-right + session-progress bar +
 //   "Question N / 50" + cosmetic last-question indicator
-// - content area: per-question timer + block depletion above the
-//   <ItemSlot> (latency-anchor host, KEYED on currentItem.id), then
-//   the full-width Submit Answer CTA
+// - content area: per-question timer above the <ItemSlot>
+//   (latency-anchor host, KEYED on currentItem.id), then the
+//   full-width Submit Answer CTA
 // - overlays: <TriagePrompt> (top-center), <InterQuestionCard>,
 //   <Heartbeat> (sibling to <ItemSlot>)
 //
@@ -43,7 +47,6 @@ import { Heartbeat } from "@/components/focus-shell/heartbeat"
 import { InterQuestionCard } from "@/components/focus-shell/inter-question-card"
 import { ItemSlot } from "@/components/focus-shell/item-slot"
 import { PaceTrack } from "@/components/focus-shell/pace-track"
-import { QuestionBlockDepletion } from "@/components/focus-shell/question-block-depletion"
 import { QuestionTimerBar } from "@/components/focus-shell/question-timer-bar"
 import { SessionTimerBar, formatRemaining } from "@/components/focus-shell/session-timer-bar"
 import {
@@ -281,15 +284,12 @@ function FocusShell(props: FocusShellProps) {
 				</div>
 				<hr className="mt-3 border-foreground/10" />
 
-				{/* content area — per-question timer + block depletion as
-				    framing chrome above the question, then the question
-				    text + options inside <ItemSlot>, then the full-width
-				    Submit Answer CTA. */}
+				{/* content area — per-question timer as framing chrome
+				    above the question, then the question text + options
+				    inside <ItemSlot>, then the full-width Submit Answer
+				    CTA. */}
 				<div className="mt-8 flex flex-col gap-6">
-					<div className="flex flex-col gap-2">
-						{questionTimerNode}
-						<QuestionBlockDepletion elapsedQuestionMs={state.elapsedQuestionMs} />
-					</div>
+					{questionTimerNode}
 					{/*
 					 * LOAD-BEARING: do not remove the `key={state.currentItem.id}`
 					 * prop. The keyed mount is what re-runs <ItemSlot>'s mount
