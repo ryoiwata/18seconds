@@ -35,8 +35,17 @@ const proxy = auth(function proxyHandler(req) {
 // no NextAuth session attached. They must bypass this auth proxy or runs hang
 // in `pending` and never advance their steps. This carve-out applies to every
 // workflow in the project, not only embedding-backfill.
+//
+// `api/sessions/[^/]+/heartbeat` is also excluded (Plan §7.2): the
+// <Heartbeat> client component fires sendBeacon every 30 s, and routing
+// it through auth() would cost a per-30s read of the auth_sessions
+// table given `session: { strategy: "database" }`. The route self-guards
+// by treating an unknown sessionId as a 204 no-op (no leakage of session
+// existence), so dropping the auth check is safe.
 export const config = {
-	matcher: ["/((?!_next/static|_next/image|favicon|\\.well-known/workflow/).*)"]
+	matcher: [
+		"/((?!_next/static|_next/image|favicon|\\.well-known/workflow/|api/sessions/[^/]+/heartbeat).*)"
+	]
 }
 
 export { proxy }
