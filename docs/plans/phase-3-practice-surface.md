@@ -292,6 +292,16 @@ const completedDiagnostic = await db.select({ ok: sql<number>`1` })
 if (completedDiagnostic.length === 0) redirect("/diagnostic")
 ```
 
+> **Implementation note (added post-implementation).** The plan's pseudo-code shows
+> `async layout` with `await auth()` at the top. `next.config.ts` sets
+> `cacheComponents: true`, which trips a runtime error on awaits not nested
+> under a Suspense boundary. The actual implementation Suspense-wraps an async
+> inner component: outer layout is sync and returns
+> `<Suspense fallback={null}><Inner gatePromise={...}>{children}</Inner></Suspense>`.
+> `redirect()` still throws before any HTML streams so the gate semantics are
+> unchanged. Phase 5 layouts adopting the same gate pattern should mirror this
+> structure.
+
 The gate must **not** apply to `/diagnostic` itself or `/post-session/[sessionId]` — those routes live OUTSIDE `(app)/`. Concretely, the route group structure is (revised in plan v2 — `(diagnostic-flow)/layout.tsx` made explicit, login confirmed):
 
 - `src/app/(app)/layout.tsx` (NEW in commit 4) → auth check + diagnostic-completed gate, wraps `/`, `/drill/...`.
@@ -487,6 +497,15 @@ Scope: routes + the (diagnostic-flow) and (app) route groups. Wires commits 1–
 Files added/modified (revised in plan v2 — `(diagnostic-flow)/layout.tsx` added; `actions.ts` alternative removed; `/login` confirmed pre-existing):
 - `src/app/(app)/layout.tsx` (NEW) — server-component auth check + diagnostic-completed gate per §6.5.
 - `src/app/(app)/page.tsx` (NEW) — placeholder Mastery Map ("hello, your diagnostic is complete" + a "Start drill: <sub-type>" link). The full `<MasteryMap>` component lands in commit 5.
+
+  > **Implementation note.** `typedRoutes: true` in `next.config.ts` rejects
+  > `<Link href>` to dynamic param routes that haven't been built yet (e.g.,
+  > `/drill/[subTypeId]` from the commit-4 placeholder before commit 5 lands the
+  > configure page). Use plain `<a>` tags for these forward-references; they're
+  > untyped and compile against routes that don't exist yet. Commit 5's
+  > `<MasteryMap>` keeps `<a>` for the CTA since the route param is dynamic
+  > anyway.
+
 - `src/app/(diagnostic-flow)/layout.tsx` (NEW) — auth check ONLY (`if (!session?.user?.id) redirect("/login")`), no diagnostic-completed gate. Lets the diagnostic and post-session routes render for users who haven't yet finished the diagnostic, without each page repeating the auth check.
 - `src/app/(diagnostic-flow)/diagnostic/page.tsx` (NEW) — server component, runs the in-progress-stale-finalize check then `startSession`, passes promise to content.
 - `src/app/(diagnostic-flow)/diagnostic/content.tsx` (NEW) — `"use client"`, `React.use(promise)`, mounts `<FocusShell>` with the diagnostic config.
@@ -538,3 +557,39 @@ Stop-and-report criterion: all six checks pass; the drill flow round-trips witho
 **The 5-minute abandon threshold is a one-line config in the cron handler.** If real-world usage shows it's too generous (sessions sit "alive" for an annoying amount of time on the Mastery Map's history view, when that view ships in Phase 6), the threshold can drop to 3 minutes without re-architecting anything. The lower bound is roughly 90 seconds (3× heartbeat interval); below that, false-abandons start hitting honest users.
 
 **The `/post-session/[sessionId]` route is intentionally minimal in Phase 3.** Phase 5 adds the drill post-session UI (wrong-items list, triage score, accuracy/latency summary, surfaced strategies) and the full-length strategy-review gate. The route's directory structure (a `(diagnostic-flow)` route group sibling to `(app)`) is set up so Phase 5 can move the route into `(app)` (gated by the diagnostic-completed check) without disturbing Phase 3's diagnostic flow. The `(diagnostic-flow)` group is a Phase 3 scaffold; Phase 5 may collapse it.
+
+### 11.1 Framework-constraint adaptations from Phase 3 implementation
+
+Two places in this plan describe pseudo-code that the framework rejected when implemented as written. Both have inline implementation notes at their original location (§6.5 and §10 commit 4); collected here for cross-reference.
+
+- **§6.5 — `(app)/layout.tsx` diagnostic gate must Suspense-wrap the await.** `next.config.ts` enables `cacheComponents: true`, which trips a runtime error on awaits that aren't nested under a Suspense boundary. Outer layout stays sync; an async `Inner` component is mounted inside `<Suspense fallback={null}>` and awaits the gate promise. `redirect()` semantics are unchanged (it throws before any HTML streams). Phase 5 layouts adopting the same gate pattern must mirror this structure.
+
+- **§10 commit 4 — forward-references to dynamic param routes must use plain `<a>` tags, not `<Link href>`.** `typedRoutes: true` in `next.config.ts` rejects `<Link href>` to dynamic param routes that haven't been built yet (e.g., `/drill/[subTypeId]` from the commit-4 placeholder before commit 5 lands the configure page). Plain `<a>` tags compile against routes that don't exist yet because they're untyped. Commit 5's `<MasteryMap>` keeps `<a>` for the CTA since the route param is dynamic anyway.
+
+### 11.2 Tooling-boundary observations (the "lint scope follows ownership scope" meta-pattern)
+
+Phase 3 surfaced three independent cases where the project's tooling has ownership boundaries that the lint/build configuration didn't reflect by default. Each was resolved by making the boundary explicit in config:
+
+1. **Workflow webhook routes (plugin-owned).** `src/app/.well-known/workflow/` is plugin-emitted, gitignored, and regenerates on `bun run dev`. Biome config now ignores this path; lint scope follows gitignore scope.
+
+2. **Workflow function import graphs (plugin-rejected pino reachability).** The `@workflow/next` plugin rejects pino-reachable imports from `"use workflow"` functions' import graphs. Workflow files keep `"use workflow"`/`"use step"` markers but delegate step bodies to sibling step-helpers files (e.g., `mastery-recompute-steps.ts`) that own the `@/logger` import. Phase 4's generation-pipeline workflows (generateItem, validateItem, scoreItem, deployItem) should adopt this pattern from day one rather than retrofit.
+
+3. **Self-declared EXEMPT scripts.** 11 files under `scripts/` carry an explicit `EXEMPT FROM THE PROJECT RULESET` header documenting they predate the current ruleset. Biome doesn't read file-header markers; the config now lists each EXEMPT file by path. New files in `scripts/_lib/` are NOT auto-exempt — adding a new exemption requires both the header AND the config entry.
+
+Workflow manifest counts have a similar offset: 3 built-in steps from `workflow/internal/builtins` (`__builtin_response_array_buffer`, `__builtin_response_json`, `__builtin_response_text`) are auto-injected so workflow code can call `await response.json()` across the VM boundary. Manifest count = (user-defined `"use step"` markers) + 3.
+
+Verification recipe when adding new workflows: count `grep -rn '"use step"' src/workflows/`, add 3, compare against the dev startup log line `Created manifest with N steps, M workflows, and 0 classes`. If the math doesn't match, the helper extraction silently dropped or duplicated a step.
+
+### 11.3 Open follow-ups for Phase 4 / Phase 5
+
+- **Post-completion orphan rows.** Idempotency in `startSession` (commit `e087ac9`) closes the React strict-mode + cacheComponents double-render orphan source. A second orphan source remains: after `endSession` fires from a form action, Next.js auto-revalidates the form-action's source route, which re-runs the run page's server-side `startSession` with the previous session already finalized. Idempotency correctly creates a new empty row. Both the drill flow (`/drill/[subTypeId]/run`) and the diagnostic flow are affected by shape but diagnostic's UX hides it (the post-session route gates on session ownership).
+
+  The smoke filter `ended_at_ms IS NOT NULL` in `loadDrillSession` is the semantically-correct query for "find the drill we just ran" and should stay as a contract regardless of orphan-source state. Phase 5 should investigate the right fix when it adds the post-session review composition; candidates include skipping form-action source-route revalidation on completion, revalidating only `/` instead of the route's own path, or making the run page's `startSession` a no-op when a recently-finalized session is detected. Don't pre-commit to a specific fix in the plan.
+
+- **lefthook's format step is intentionally disabled** pending two fixes:
+  1. `fmt.ts --strip-comments` has a parser bug that mangled identifiers adjacent to stripped comments during Phase 3 (`selection.ts:372-373` mangle observed; minimal repro shape characterized at `scripts/dev/fmt-bug-repro.ts` but isolation not yet achieved).
+  2. The format step's scope is unbounded — uses `getFilesToCheck()` instead of `{staged_files}`, would auto-stage ~96 unrelated files per commit.
+
+  Re-enable when both are addressed. Tracked as Phase 4 prep work; not blocking Phase 4's first commit.
+
+- **Meta-observation: Phase 3's smokes are dense enough to surface incorrect design premises before they ship.** Two examples this session: Commit B's "install lefthook + sweep lint debt" caught a missed `||` violation in `focus-shell.tsx` that Commit A's lint pass had let through; Commit C's `phase3-commit5.ts` smoke caught that the "orphan rows can no longer exist by construction" premise was too strong. The smoke is the contract — when a fix premise turns out to be wrong, the smoke is what surfaces it. Phase 4 should preserve this density: every workflow stage gets a smoke, every threshold gets a regression check, every "by construction" claim gets verified empirically.
