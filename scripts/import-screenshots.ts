@@ -210,7 +210,7 @@ Your explanation models the internal monologue of a fast test-taker working thro
 
 Call the submit_structured_explanation tool with two or three parts in this order:
 
-1. RECOGNITION — Name the pattern type AND the first move a fast solver makes. ≤ 20 words. This is the only part with a hard length cap; recognition is a triage cue, not a sub-explanation, and going long here means the model is narrating structure instead of naming the move. Examples:
+1. RECOGNITION — Name the pattern type AND the first move a fast solver makes. Examples:
    - "Double-blank sentence-completion problem; solve the conjunction-locked blank first."
    - "Antonym problem; sort options by relationship-to-target before reading meanings."
    - "Multi-letter group letter series; convert each position to its number track separately."
@@ -226,9 +226,7 @@ Call the submit_structured_explanation tool with two or three parts in this orde
    - "Pick the first-word option that causally explains the effect; 'lengthy' causes drowsiness, while 'rambling' merely describes a quality."
    referencedOptions: list the option ids the tie-breaker is choosing between.
 
-When to OMIT the tie-breaker: if your elimination part cut every wrong option and a single correct option remains uncontested, do not emit a tie-breaker. Submit only two parts (recognition + elimination). A tie-breaker that "confirms" the answer is forbidden — if there is no real choice to make, the explanation is complete after elimination.
-
-The test for whether to emit a tie-breaker is "are there still two plausibly-correct options on the table after my elimination?" — NOT "are there options I didn't list in elimination's referencedOptions?" The user is fast-solving, not exhaustively eliminating; if your elimination decisively cuts all wrong options, that is a feature, not a gap.
+When to OMIT the tie-breaker: count the option ids in your elimination's referencedOptions array. If they include every option except the correct answer, OMIT the tie-breaker — submit only two parts (recognition + elimination). The test is mechanical: count the ids, compare to the option list, decide. Do not emit a tie-breaker that compares the correct answer to "any survivor" or "any remaining option" — those phrases are signals you should have omitted instead.
 
 Hard rules:
 - When referring to an answer choice in the text, quote its text exactly (e.g., 'sell' or 'engaging') rather than paraphrasing. Do not invent paraphrases like "the transfer-flavored option."
@@ -237,7 +235,9 @@ Hard rules:
 - referencedOptions contains option ids ("A", "B", "C", "D", or "E") — never option text. The script will look up the text by id.
 - referencedOptions for a part lists every option whose content is named anywhere in that part's text — including options named as counter-examples, named in passing, or named alongside the primary subject. If the text contains the literal text of an option (or any substring distinctive to that option), include the option's id. When in doubt, include.
 - Do not address the user ("you should…", "notice that…"). Describe the moves in third person or imperative.
-- Do not restate the question. Do not name the correct answer letter (the system displays it).
+- Do not restate the question.
+- Do not name option letters (A/B/C/D/E) in the explanation. If you find yourself wanting to name an option by letter, that is a signal you are overpacking elimination — the part has expanded beyond a single clean cut rule and is trying to use letters as shorthand for multiple sub-eliminations. The fix is to restructure with content references only, not to add the letter.
+- Elimination teaches a single cut RULE — not multiple sequential cuts wrapped in derivation. If your elimination is naming each wrong option individually with its own per-option reasoning, you are deriving the answer rather than teaching a triage move. Compress to a single rule that cuts multiple options at once. Example: "Cut any pair where both words share the same part of speech" cuts four options in one move; "Cut 'Excited:Thrilled' because synonyms, cut 'Potent:Robust' because synonyms, cut 'Capacity:Volume' because nouns, cut 'Wrath:Irate' because reversed" is the same elimination performed wrong.
 - No bullets, no headers, no LaTeX, no multi-line equations. Plain prose inside each part's text.
 
 Sub-type style hint for this question: \${SUB_TYPE_HINT}`
