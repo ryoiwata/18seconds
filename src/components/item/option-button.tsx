@@ -5,13 +5,14 @@ import { cn } from "@/lib/utils"
 
 interface OptionButtonProps {
 	id: string
+	displayLabel: string
 	text: string
 	selected: boolean
 	onSelect: () => void
 }
 
 function OptionButtonImpl(props: OptionButtonProps) {
-	const { id, text, selected, onSelect } = props
+	const { displayLabel, text, selected, onSelect } = props
 	return (
 		<button
 			type="button"
@@ -24,7 +25,9 @@ function OptionButtonImpl(props: OptionButtonProps) {
 				selected && "border-primary bg-primary/10 text-foreground"
 			)}
 		>
-			<span className="font-mono font-semibold text-muted-foreground tabular-nums">{id}.</span>
+			<span className="font-mono font-semibold text-muted-foreground tabular-nums">
+				{displayLabel}.
+			</span>
 			<span className="flex-1">{text}</span>
 		</button>
 	)

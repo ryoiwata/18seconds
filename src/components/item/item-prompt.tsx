@@ -56,11 +56,13 @@ function ItemPrompt(props: ItemPromptProps) {
 		<div className="flex flex-col gap-6">
 			<div>{renderBody(body)}</div>
 			<div className="flex flex-col gap-2">
-				{options.map(function renderOption(option) {
+				{options.map(function renderOption(option, index) {
+					const displayLabel = String.fromCharCode(0x41 + index)
 					return (
 						<OptionButton
 							key={option.id}
 							id={option.id}
+							displayLabel={displayLabel}
 							text={option.text}
 							selected={option.id === selectedOptionId}
 							onSelect={function selectThis() {
