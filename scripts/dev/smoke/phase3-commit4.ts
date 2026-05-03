@@ -122,11 +122,10 @@ async function openBrowser(): Promise<BrowserHandle> {
 		consoleErrors.push(e.message)
 	})
 	page.on("console", function onConsole(msg) {
-		if (msg.type() === "error") {
-			const text = msg.text()
-			if (text.includes("404") && text.toLowerCase().includes("not found")) return
-			consoleErrors.push(text)
-		}
+		if (msg.type() !== "error") return
+		const text = msg.text()
+		if (text.includes("404") && text.toLowerCase().includes("not found")) return
+		consoleErrors.push(text)
 	})
 	return { browser, page, consoleErrors }
 }

@@ -1,32 +1,136 @@
-// (app)/page.tsx — placeholder home for commit 4.
+// (app)/page.tsx — Mastery Map home. Plan §6.3.
 //
-// The full Mastery Map (with the eleven-icon grid, near-goal line,
-// triage adherence indicator, and recommended-next-session CTA) lands
-// in commit 5 per plan §10. For now this page renders a confirmation
-// that the gate has passed, plus a link into a default drill so the
-// user can proceed to commit 5's drill flow once it lands.
+// Server component (NOT async per rules/rsc-data-fetching-patterns.md).
+// Initiates four parallel promises and passes them through to the
+// `<MasteryMap>` client component which consumes them via React.use().
 //
-// The drill link is rendered as a plain <a href> rather than <Link>
-// because the /drill/[subTypeId] route doesn't exist yet (commit 5),
-// and `typedRoutes: true` in next.config.ts would reject the typed
-// <Link href>. Plain <a> is untyped so it compiles; commit 5 swaps
-// this entire page out for the real <MasteryMap>.
+// The four promises:
+//   - masteryStatesPromise: SELECT sub_type_id, current_state FROM
+//     mastery_state WHERE user_id = $1.
+//   - userTargetsPromise: SELECT target_percentile, target_date_ms FROM
+//     users WHERE id = $1.  (passed into nearGoalPromise; not surfaced
+//     directly to the client.)
+//   - nearGoalPromise: derived from masteryStates + targetDate via
+//     deriveNearGoal().
+//   - triagePromise: triageRolling30d(userId).
+//   - recommendedSubTypePromise: lowest-mastery sub-type with
+//     deterministic tie-break.
+//
+// The (app)/layout.tsx gate ensures `auth()` already passed before this
+// page renders, so the auth() call here is for the userId only —
+// redirect-on-null is a defensive belt-and-suspenders.
 
-import { Button } from "@/components/ui/button"
+import { eq } from "drizzle-orm"
+import { redirect } from "next/navigation"
+import * as React from "react"
+import { auth } from "@/auth"
+import { type SubTypeId, subTypeIds } from "@/config/sub-types"
+import { db } from "@/db"
+import { masteryState } from "@/db/schemas/practice/mastery-state"
+import { users } from "@/db/schemas/auth/users"
+import { logger } from "@/logger"
+import { MasteryMap } from "@/components/mastery-map/mastery-map"
+import type { MasteryLevel } from "@/server/mastery/compute"
+import { deriveNearGoal } from "@/server/mastery/near-goal"
+import { recommendedNextSubType } from "@/server/mastery/recommended-next"
+import { triageRolling30d } from "@/server/triage/score"
+
+const subTypeIdSet: ReadonlySet<string> = new Set<string>(subTypeIds)
+function asSubTypeId(s: string): SubTypeId | undefined {
+	if (!subTypeIdSet.has(s)) return undefined
+	const matched = subTypeIds.find(function eq(known) {
+		return known === s
+	})
+	return matched
+}
+
+async function loadUserId(): Promise<string> {
+	const session = await auth()
+	if (!session?.user?.id) {
+		logger.debug({}, "(app)/page: no auth session, redirect /login")
+		redirect("/login")
+	}
+	return session.user.id
+}
+
+async function loadMasteryStates(
+	userIdPromise: Promise<string>
+): Promise<ReadonlyMap<SubTypeId, MasteryLevel>> {
+	const userId = await userIdPromise
+	const rows = await db
+		.select({ subTypeId: masteryState.subTypeId, currentState: masteryState.currentState })
+		.from(masteryState)
+		.where(eq(masteryState.userId, userId))
+	const map = new Map<SubTypeId, MasteryLevel>()
+	for (const row of rows) {
+		const id = asSubTypeId(row.subTypeId)
+		if (id === undefined) {
+			logger.warn(
+				{ subTypeId: row.subTypeId },
+				"(app)/page: unknown sub_type_id in mastery_state, skipping"
+			)
+			continue
+		}
+		map.set(id, row.currentState)
+	}
+	return map
+}
+
+async function loadTargetDateMs(userIdPromise: Promise<string>): Promise<number | undefined> {
+	const userId = await userIdPromise
+	const rows = await db
+		.select({ targetDateMs: users.targetDateMs })
+		.from(users)
+		.where(eq(users.id, userId))
+		.limit(1)
+	const row = rows[0]
+	if (!row || row.targetDateMs === null) return undefined
+	return row.targetDateMs
+}
 
 function Page() {
+	const userIdPromise = loadUserId()
+	const masteryStatesPromise = loadMasteryStates(userIdPromise)
+	const targetDatePromise = loadTargetDateMs(userIdPromise)
+
+	// Date.now() must be called AFTER an uncached / Request data access
+	// when `cacheComponents: true` is on (next.config.ts). Awaiting
+	// userIdPromise (which calls auth() → cookies()) and chaining off of
+	// it satisfies the gate; the actual current time is captured inside
+	// the .then() callback so the read happens after the cookies()
+	// dependency is registered with the framework.
+	const nearGoalPromise = userIdPromise.then(function gate() {
+		const nowMs = Date.now()
+		return Promise.all([masteryStatesPromise, targetDatePromise]).then(
+			function derive([states, targetDateMs]) {
+				return deriveNearGoal({ masteryStates: states, targetDateMs, nowMs })
+			}
+		)
+	})
+
+	const triagePromise = userIdPromise.then(function callTriage(userId) {
+		return triageRolling30d(userId)
+	})
+	const recommendedSubTypePromise = masteryStatesPromise.then(function pickRecommended(states) {
+		return recommendedNextSubType(states)
+	})
+
 	return (
-		<main className="mx-auto flex min-h-dvh max-w-xl flex-col items-center justify-center gap-6 px-6 py-12">
-			<div className="space-y-2 text-center">
-				<h1 className="font-semibold text-2xl tracking-tight">Diagnostic complete</h1>
-				<p className="text-muted-foreground text-sm">
-					The full Mastery Map lands in commit 5. For now, jump straight into a
-					drill.
-				</p>
-			</div>
-			<Button asChild>
-				<a href="/drill/verbal.synonyms">Start drill: Synonyms</a>
-			</Button>
+		<React.Suspense fallback={<MasteryMapSkeleton />}>
+			<MasteryMap
+				masteryStatesPromise={masteryStatesPromise}
+				nearGoalPromise={nearGoalPromise}
+				triagePromise={triagePromise}
+				recommendedSubTypePromise={recommendedSubTypePromise}
+			/>
+		</React.Suspense>
+	)
+}
+
+function MasteryMapSkeleton() {
+	return (
+		<main className="mx-auto flex min-h-dvh max-w-2xl items-center justify-center px-6">
+			<p className="text-muted-foreground text-sm">Loading…</p>
 		</main>
 	)
 }
