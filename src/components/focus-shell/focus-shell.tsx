@@ -320,8 +320,11 @@ function FocusShell(props: FocusShellProps) {
 						}}
 						disabled={submitDisabled}
 						className={cn(
-							"w-full rounded-md bg-primary px-6 py-4 font-medium text-base text-primary-foreground transition-colors",
-							"hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+							// Solid blue per the target screenshots (the indigo-ish tone in
+							// example_03/04). `bg-blue-600` matches the closest Tailwind token.
+							// Disabled state collapses to neutral gray via opacity-50.
+							"w-full rounded-md bg-blue-600 px-6 py-4 font-medium text-base text-white transition-colors",
+							"hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600",
 							"disabled:cursor-not-allowed disabled:opacity-50"
 						)}
 					>

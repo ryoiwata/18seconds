@@ -38,23 +38,28 @@ function OptionButtonImpl(props: OptionButtonProps) {
 			className={cn(
 				"flex w-full items-center gap-4 rounded-md border px-5 py-4 text-left text-base transition-colors",
 				"border-border bg-background text-foreground hover:border-foreground/40",
-				"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-				selected && "border-primary bg-primary/5 text-foreground"
+				"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500",
+				// Selected state visual: blue-tinted border + light blue background
+				// echo the Submit-button blue. The radio-fill is a separate accent
+				// (orange) so the user has two distinct visual cues for "this is
+				// the selected option" vs "this is the action button".
+				selected && "border-blue-600 bg-blue-50 text-foreground"
 			)}
 		>
 			{/* Radio-circle bullet. Outer ring + inner dot only when selected.
-			    Matches the reference screenshots' filled-orange selected dot. */}
+			    Filled orange per the target screenshots — the radio fill is a
+			    deliberately distinct accent from the Submit-button blue. */}
 			<span
 				aria-hidden="true"
 				className={cn(
 					"relative flex h-5 w-5 shrink-0 items-center justify-center rounded-full border",
-					selected ? "border-primary" : "border-foreground/40"
+					selected ? "border-orange-500" : "border-foreground/40"
 				)}
 			>
 				<span
 					className={cn(
 						"h-2.5 w-2.5 rounded-full transition-opacity",
-						selected ? "bg-primary opacity-100" : "opacity-0"
+						selected ? "bg-orange-500 opacity-100" : "opacity-0"
 					)}
 				/>
 			</span>
