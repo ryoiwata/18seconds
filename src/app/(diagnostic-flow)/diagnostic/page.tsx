@@ -1,92 +1,75 @@
-// /diagnostic — server component entry.
+// /diagnostic — pre-diagnostic explainer page.
 //
-// Plan §6.1 (flow) + §9.4 (in-progress-stale-finalize edge cases).
+// Phase 3 polish commit 3 split the original /diagnostic into an
+// explainer (this file) + the actual session route (`/diagnostic/run`).
+// See docs/plans/phase-3-polish-practice-surface-features.md §6.1.
 //
-// Before kicking off `startSession`, we look for any prior diagnostic
-// session for this user that is still `ended_at_ms IS NULL`. Per
-// plan §9.4, two edge cases land here:
+// Server component, NOT async per
+// rules/rsc-data-fetching-patterns.md. The (app)/layout.tsx diagnostic
+// gate's redirect target stays `/diagnostic` — users who haven't
+// completed a diagnostic land here first, read the framing, then click
+// "Start Diagnostic" to enter the session at `/diagnostic/run`.
 //
-//   - User started a diagnostic, navigated away, and returned. The (app)
-//     layout's gate failed (no completed diagnostic), redirected here.
-//     The orphan in-progress row needs to be finalized as 'abandoned'
-//     before we start a fresh diagnostic.
-//
-//   - User closed the tab and returned BEFORE the abandon-sweep cron
-//     finalized the orphan. Same shape; same fix.
-//
-// Phase 3 ships abandon-then-restart (the simpler choice). Resume is a
-// Phase 5 polish item.
-//
-// The `startSession` action is initiated as a promise here and passed
-// through to <DiagnosticContent> (a client component) which consumes it
-// via React.use() — the promise-drilling pattern from
-// rules/rsc-data-fetching-patterns.md. The page itself is non-async.
+// No `alpha-style` skin (parent-plan §11 forward note: focus-shell-
+// aesthetic family). Match the focus-shell's typographic register —
+// foreground / muted-foreground / subtle borders — so the visual
+// transition into `/diagnostic/run` is continuous.
 
-import { and, eq, isNull, sql } from "drizzle-orm"
-import * as React from "react"
-import { redirect } from "next/navigation"
-import { auth } from "@/auth"
-import { db } from "@/db"
-import { practiceSessions } from "@/db/schemas/practice/practice-sessions"
-import { logger } from "@/logger"
-import { startSession } from "@/server/sessions/start"
-import { DiagnosticContent } from "@/app/(diagnostic-flow)/diagnostic/content"
-
-async function abandonInProgressDiagnosticsAndStart(): Promise<{
-	sessionId: string
-	firstItem: Awaited<ReturnType<typeof startSession>>["firstItem"]
-}> {
-	const session = await auth()
-	if (!session?.user?.id) {
-		// (diagnostic-flow) layout already gates on auth, so this is the
-		// "session expired between layout render and page render" path.
-		// Redirect to /login so the user re-authenticates.
-		logger.debug({}, "/diagnostic: no auth session at page time, redirect /login")
-		redirect("/login")
-	}
-	const userId = session.user.id
-
-	// Finalize any orphan in-progress diagnostic. Per plan §9.4, one
-	// query covers both the "in-progress" and "recently-abandoned-but-
-	// not-swept" cases — the WHERE clause is the same.
-	const finalized = await db
-		.update(practiceSessions)
-		.set({
-			endedAtMs: sql`(extract(epoch from now()) * 1000)::bigint`,
-			completionReason: "abandoned"
-		})
-		.where(
-			and(
-				eq(practiceSessions.userId, userId),
-				eq(practiceSessions.type, "diagnostic"),
-				isNull(practiceSessions.endedAtMs)
-			)
-		)
-		.returning({ id: practiceSessions.id })
-
-	if (finalized.length > 0) {
-		logger.info(
-			{ userId, count: finalized.length },
-			"/diagnostic: finalized stale in-progress diagnostic(s) before fresh start"
-		)
-	}
-
-	return startSession({ userId, type: "diagnostic" })
-}
+// `next/link` typed-routes (next.config.ts: typedRoutes: true) reject
+// the forward-reference to `/diagnostic/run` because the route was
+// added in the same commit — its typed-route entry hasn't propagated
+// yet. Following the precedent in
+// docs/plans/phase-3-practice-surface.md §11.1 (commit 4 used the
+// same workaround for `/drill/[subTypeId]`), use a plain `<a>` tag
+// for the forward-reference. Once the typed-routes cache catches up
+// post-build, a future commit can swap this back to <Link>.
 
 function Page() {
-	const sessionPromise = abandonInProgressDiagnosticsAndStart()
 	return (
-		<React.Suspense fallback={<DiagnosticSkeleton />}>
-			<DiagnosticContent sessionPromise={sessionPromise} />
-		</React.Suspense>
-	)
-}
+		<main className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col items-stretch justify-center px-6 py-16">
+			<header className="space-y-3">
+				<h1 className="font-semibold text-3xl tracking-tight">
+					Welcome to the diagnostic.
+				</h1>
+				<p className="text-foreground/70 text-sm">
+					Read this once. It will not be shown again.
+				</p>
+			</header>
 
-function DiagnosticSkeleton() {
-	return (
-		<main className="mx-auto flex min-h-dvh max-w-xl items-center justify-center px-6">
-			<p className="text-muted-foreground text-sm">Preparing your diagnostic…</p>
+			<ul className="mt-10 space-y-4 text-base">
+				<li className="flex items-start gap-3">
+					<span aria-hidden="true" className="mt-2 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/60" />
+					<span>
+						<strong className="font-semibold">50 questions in 15 minutes.</strong>{" "}
+						This is the same pacing the real CCAT uses.
+					</span>
+				</li>
+				<li className="flex items-start gap-3">
+					<span aria-hidden="true" className="mt-2 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/60" />
+					<span>
+						The diagnostic is designed to train your{" "}
+						<strong className="font-semibold">triage discipline</strong> —
+						knowing when to abandon a question and move on.
+					</span>
+				</li>
+				<li className="flex items-start gap-3">
+					<span aria-hidden="true" className="mt-2 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/60" />
+					<span>
+						You are not expected to finish all 50.{" "}
+						<strong className="font-semibold">That's by design.</strong> The
+						clock is the test; what you finish is your baseline.
+					</span>
+				</li>
+			</ul>
+
+			<div className="mt-12">
+				<a
+					href="/diagnostic/run"
+					className="inline-flex w-full items-center justify-center rounded-md bg-primary px-6 py-4 font-medium text-base text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+				>
+					Start Diagnostic
+				</a>
+			</div>
 		</main>
 	)
 }

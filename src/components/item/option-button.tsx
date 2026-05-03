@@ -1,35 +1,28 @@
 "use client"
 
 // <OptionButton> — tall full-width rectangular option button matching
-// the data/example_ccat_formatting/*.png reference. Phase 3 polish
-// commit 2 restyle: thin gray border, ample vertical padding, an
-// unfilled radio-circle bullet on the left followed by the option
-// text, no A/B/C/D/E letter label visible (screenshots show no letter).
+// the data/example_ccat_formatting/*.png reference. Thin gray border,
+// ample vertical padding, an unfilled radio-circle bullet on the left
+// followed by the option text.
 //
-// NOTE — DEVIATION FROM PLAN §5.1: the plan said "the A/B/C/D/E label
-// as a filled left tab on the rectangle." The reference screenshots do
-// not show such a label — they show a radio-circle bullet only. The
-// screenshots are authoritative per the commit-2 instructions. The
-// `displayLabel` prop is retained on the type so the existing keyboard-
-// nav handler in <ItemPrompt> still computes A/B/C/D/E for keypress
-// resolution; it's just not rendered. If a future commit reintroduces a
-// visible letter label, set the prop's render path back on without
-// changing call sites.
+// No A/B/C/D/E letter label is rendered. The reference screenshots
+// don't show one, the real CCAT doesn't surface one, and commit 3
+// stripped the keyboard nav that would have made one useful. See
+// docs/plans/phase-3-polish-practice-surface-features.md §3.0 / §3.1.
+//
+// Accessibility: `aria-pressed` on the button is what screen readers
+// announce ("button, [option text], pressed"/"not pressed"). No letter
+// or "Option A" aria-label needed.
 //
 // Selected-state visual: filled radio dot, light primary background,
-// dark primary border (matches screenshot 3 + 5 — "112" / "0.45"
-// selected states).
-// Hover-state visual: darker border without circle fill (matches
-// screenshot 2 + 6 — "105" / "56% of the voters were men" hover).
+// dark primary border. Hover-state visual: darker border without
+// circle fill.
 
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
 interface OptionButtonProps {
 	id: string
-	// Retained for type-compat with <ItemPrompt>'s render loop and the
-	// keyboard-nav A/B/C/D/E mapping. Not rendered post-commit-2.
-	displayLabel: string
 	text: string
 	selected: boolean
 	onSelect: () => void

@@ -1,9 +1,14 @@
 "use client"
 
-// /diagnostic content — consumes the startSession promise from page.tsx
-// via React.use() and mounts the FocusShell with diagnostic config.
+// /diagnostic/run content — consumes the startSession promise from
+// page.tsx via React.use() and mounts the FocusShell with diagnostic
+// config.
 //
-// Plan §6.1. Diagnostic config:
+// Phase 3 polish commit 3 moved this from
+// /diagnostic/content.tsx — behavior unchanged from the original.
+// See docs/plans/phase-3-polish-practice-surface-features.md §6.1.
+//
+// Diagnostic config:
 //   - sessionDurationMs: null  (commit 4 wires DIAGNOSTIC_SESSION_DURATION_MS
 //     here; until then the chronometer/progress bar are hidden in the
 //     diagnostic flow and only the drill flow renders them)

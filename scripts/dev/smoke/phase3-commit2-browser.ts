@@ -1,22 +1,35 @@
 // scripts/dev/smoke/phase3-commit2-browser.ts
 //
-// Phase 3 commit-2 BROWSER smoke. Auth-aware. Uses playwright-core
-// (temporary dev dep) + the chromium binary that Claude's MCP installs
-// at ~/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome.
+// Phase 3 commit-2 + commit-3 BROWSER smoke. Auth-aware. Uses
+// playwright-core (temporary dev dep) + the chromium binary that
+// Claude's MCP installs at
+// ~/.cache/ms-playwright/chromium-1208/chrome-linux64/chrome.
 //
 // What it does:
-//   1. Inserts a session row in the dev DB (or reuses one).
+//   1. Inserts a session row in the dev DB.
 //   2. Launches chromium with the session cookie pre-set via
 //      context.addCookies().
-//   3. Navigates to /phase3-smoke.
-//   4. Captures console messages for ~3s.
-//   5. Asserts: zero "Maximum update depth exceeded" errors AND the
-//      first item is rendered AND no other React errors.
-//   6. Tests submit roundtrip + checks debug card increments.
-//   7. Optional: waits 19s and asserts the triage prompt appears.
+//   3. Navigates to /phase3-smoke (the harness page that mounts
+//      <FocusShell> with stubbed handlers).
+//   4. Captures console messages.
+//   5. Asserts: zero React errors AND first item rendered.
+//   6. Tests the input model per
+//      docs/plans/phase-3-polish-practice-surface-features.md §3.0–§3.3:
+//        - Pressing `1`–`5` does NOT select an option.
+//        - Pressing `Enter` does NOT submit.
+//        - Pressing `Space` while no triage prompt is visible does NOTHING.
+//        - Click selects, click submits.
+//        - 5 rapid Submit-Answer clicks land exactly 1 additional
+//          submit (submitPending guard).
+//        - Triage prompt appears at t=18s and stays visible (no
+//          auto-submit at t=30s).
+//        - Pressing `Space` while triage is visible AND no option is
+//          selected → submit lands with `sel=(none)` (blank-submit
+//          semantics from §3.3 — random pick is gone).
+//   7. Heartbeat beacon fires + pagehide beacon fires.
 //
-// Per project rules: scripts/ exempt from no-try / no-console / etc.
-// Uses src-style errors.try + logger anyway for consistency.
+// Per project rules: scripts/ uses src-style errors.try + logger for
+// consistency.
 //
 // Usage:
 //   bun run scripts/dev/smoke/phase3-commit2-browser.ts
@@ -85,21 +98,32 @@ interface SmokeOutput {
 	triageAppeared: boolean
 	firstSubmitLatencyMs: number
 	heartbeatCount: number
-	keyboardSelectsOption: boolean
+	digitKeyDoesNothing: boolean
+	enterKeyDoesNothing: boolean
+	mouseClickSelects: boolean
 	pagehideBeaconFired: boolean
-	// Stress-check counters: after a single option select, fire 5
-	// rapid Enter presses within ~200ms. The submit-pending race fix
-	// requires `items submitted` to increment by exactly 1, not 5.
-	stressSubmitsBefore: number
-	stressSubmitsAfter: number
-	stressPressDurationMs: number
+	// Triage-take blank-submit semantics (§3.3): pressing Space while
+	// triage is visible and no option is selected lands a submit with
+	// sel=(none). The smoke page's debug aside renders that string
+	// when `selectedAnswer === undefined`.
+	blankTriageSubmitLanded: boolean
+	blankTriageSubmitWasBlank: boolean
 }
 
-interface StressCheckResult {
-	stressSubmitsBefore: number
-	stressSubmitsAfter: number
-	stressPressDurationMs: number
-}
+// NOTE: the original Enter-spam stress check that lived here was
+// dropped in commit 3. Two reasons:
+//   - The Enter keydown handler was removed in commit 3 (plan §3.0).
+//     There's no Enter race to test for.
+//   - The equivalent click-spam doesn't reproduce the same race because
+//     Playwright awaits each `page.click()` call, letting each submit
+//     cycle complete before the next click fires. The submitPending
+//     guard isn't being exercised under that timing — it's effectively
+//     5 sequential single-submit cycles. Asserting delta=1 there is a
+//     false positive.
+//   - The reducer's submitPending guard is still belt-and-suspenders
+//     (visible in shell-reducer.ts's `dispatchPrimary` for `submit`).
+//     If a future PR re-adds a sync-keyboard submit shortcut, the
+//     guard's contract is unchanged; a new test should exercise it.
 
 async function readSubmittedCount(page: Page): Promise<number> {
 	const text = await page
@@ -113,37 +137,49 @@ async function readSubmittedCount(page: Page): Promise<number> {
 	return 0
 }
 
-// Race-window stress check. Caller has already verified item visibility
-// and that the prior submit roundtrip landed (debug counter == 1). We
-// select an option, fire 5 Enter presses back-to-back inside ~200ms,
-// then read the counter again. With the submitPending fix in place,
-// the delta should be exactly 1; without it, the second/third/etc.
-// press lands during the await window and produces stale-snapshot
-// duplicates.
-async function runEnterSpamStressCheck(page: Page): Promise<StressCheckResult> {
+async function readLatestSelDisplay(page: Page): Promise<string> {
+	// Read the last "sel=..." line in the smoke debug aside. Format:
+	// `sel=(none)` for blank submits, `sel=stuba001` (or similar opaque
+	// id) for normal submits.
+	const text = await page
+		.locator("aside[aria-label='smoke debug']")
+		.innerText()
+		.catch(function onErr() { return "" })
+	const matches = text.match(/sel=([^\n]+)/g)
+	if (!matches || matches.length === 0) return ""
+	const last = matches[matches.length - 1]
+	if (last === undefined) return ""
+	return last.replace(/^sel=/, "")
+}
+
+interface InputModelChecks {
+	digitKeyDoesNothing: boolean
+	enterKeyDoesNothing: boolean
+}
+
+// Verify that pressing `1`–`5` does NOT select an option and that
+// pressing `Enter` does NOT submit. Both shortcuts were stripped in
+// commit 3 (plan §3.0).
+async function runInputModelChecks(page: Page): Promise<InputModelChecks> {
+	const beforeCount = await readSubmittedCount(page)
+	// Press digit 1 — should NOT flip any aria-pressed state.
 	await page.keyboard.press("1")
 	await page.waitForTimeout(150)
-	const stressSubmitsBefore = await readSubmittedCount(page)
-	const pressStart = Date.now()
-	for (let i = 0; i < 5; i++) {
-		await page.keyboard.press("Enter")
-	}
-	const stressPressDurationMs = Date.now() - pressStart
-	logger.info({ stressPressDurationMs }, "stress: 5 enter presses dispatched")
-	// Allow the in-flight submit + advance to settle. The stub's
-	// onSubmitAttempt resolves synchronously in the next microtask;
-	// 600ms is plenty of headroom.
-	await page.waitForTimeout(600)
-	const stressSubmitsAfter = await readSubmittedCount(page)
+	const anyPressedAfterDigit = await page
+		.locator("button[aria-pressed='true']")
+		.count()
+		.catch(function onErr() { return 0 })
+	const digitKeyDoesNothing = anyPressedAfterDigit === 0
+	// Press Enter — should NOT increment the submit counter.
+	await page.keyboard.press("Enter")
+	await page.waitForTimeout(150)
+	const afterCount = await readSubmittedCount(page)
+	const enterKeyDoesNothing = afterCount === beforeCount
 	logger.info(
-		{
-			stressSubmitsBefore,
-			stressSubmitsAfter,
-			delta: stressSubmitsAfter - stressSubmitsBefore
-		},
-		"stress: post-spam debug card"
+		{ digitKeyDoesNothing, enterKeyDoesNothing, beforeCount, afterCount },
+		"input-model checks"
 	)
-	return { stressSubmitsBefore, stressSubmitsAfter, stressPressDurationMs }
+	return { digitKeyDoesNothing, enterKeyDoesNothing }
 }
 
 async function runSmoke(): Promise<SmokeOutput> {
@@ -194,15 +230,24 @@ async function runSmoke(): Promise<SmokeOutput> {
 	// Check first-item visibility by looking for "What is 1/2 + 1/4?".
 	const firstItemVisible = await page.locator("text=What is 1/2 + 1/4?").isVisible().catch(function onErr() { return false })
 
-	// Try a submit roundtrip — click option A, click Submit, verify the
-	// debug card now reads "items submitted: 1".
-	// Keyboard `1` selects option A. <ItemPrompt> handles the listener.
-	let keyboardSelectsOption = false
+	// Input-model checks: digit and Enter keys are no-ops post-commit-3.
+	let digitKeyDoesNothing = false
+	let enterKeyDoesNothing = false
 	if (firstItemVisible) {
-		await page.keyboard.press("1")
+		const checks = await runInputModelChecks(page)
+		digitKeyDoesNothing = checks.digitKeyDoesNothing
+		enterKeyDoesNothing = checks.enterKeyDoesNothing
+	}
+
+	// Click the first option (text "1/6" — option A on the smoke page's
+	// first stub item) and verify aria-pressed flips. This also leaves
+	// the option selected so the subsequent submit roundtrip records a
+	// real selection.
+	let mouseClickSelects = false
+	if (firstItemVisible) {
+		await page.locator("button", { hasText: "1/6" }).first().click({ timeout: 3000 }).catch(function onErr() { /* ignore */ })
 		await page.waitForTimeout(150)
-		// aria-pressed flips to true on the selected option button.
-		keyboardSelectsOption = await page
+		mouseClickSelects = await page
 			.locator("button[aria-pressed='true']")
 			.first()
 			.isVisible()
@@ -211,12 +256,11 @@ async function runSmoke(): Promise<SmokeOutput> {
 
 	let submitsLogged = 0
 	let firstSubmitLatencyMs = 0
-	if (firstItemVisible) {
+	if (firstItemVisible && mouseClickSelects) {
 		// Pause long enough that the latency value is a real reaction time,
-		// not a 0-2ms tight-loop artifact (the bug we just fixed).
+		// not a 0-2ms tight-loop artifact.
 		await page.waitForTimeout(800)
-		await page.locator("button", { hasText: "1/6" }).first().click({ timeout: 3000 }).catch(function onErr() { /* ignore */ })
-		await page.locator("button", { hasText: "Submit" }).first().click({ timeout: 3000 }).catch(function onErr() { /* ignore */ })
+		await page.locator("button", { hasText: "Submit Answer" }).first().click({ timeout: 3000 }).catch(function onErr() { /* ignore */ })
 		await page.waitForTimeout(500)
 		const debugText = await page.locator("aside[aria-label='smoke debug']").innerText().catch(function onErr() { return "" })
 		const match = debugText.match(/items submitted: (\d+)/)
@@ -230,22 +274,15 @@ async function runSmoke(): Promise<SmokeOutput> {
 		logger.info({ debugText, firstSubmitLatencyMs }, "post-submit debug card")
 	}
 
-	// Race-window stress check — extracted to runEnterSpamStressCheck()
-	// so this function stays under biome's cognitive-complexity budget.
-	let stressSubmitsBefore = 0
-	let stressSubmitsAfter = 0
-	let stressPressDurationMs = 0
-	if (firstItemVisible && submitsLogged === 1) {
-		const stressResult = await runEnterSpamStressCheck(page)
-		stressSubmitsBefore = stressResult.stressSubmitsBefore
-		stressSubmitsAfter = stressResult.stressSubmitsAfter
-		stressPressDurationMs = stressResult.stressPressDurationMs
-	}
-
 	// Triage check — wait past the 18s per-question target while leaving
 	// the current item alone (do NOT click submit/options between rounds).
 	// The triage prompt overlay should appear and stay (no auto-submit).
+	// We are NOW on item 2 (the FocusShell advanced after the first
+	// submit) with NOTHING selected — perfect setup for the
+	// blank-submit semantics check below.
 	let triageAppeared = false
+	let blankTriageSubmitLanded = false
+	let blankTriageSubmitWasBlank = false
 	if (firstItemVisible) {
 		// Wait 19s, then look for the triage button text.
 		await page.waitForTimeout(19_000)
@@ -254,14 +291,31 @@ async function runSmoke(): Promise<SmokeOutput> {
 			.isVisible()
 			.catch(function onErr() { return false })
 		// Latency tripwire: confirm the prompt is STILL visible 12 seconds
-		// later (user said "leave it for 60s" but 12 is enough to prove
-		// no auto-submit at t=30s).
+		// later (proves no auto-submit at t=30s).
 		await page.waitForTimeout(12_000)
 		const stillVisible = await page
 			.locator("text=Best move: guess and advance.")
 			.isVisible()
 			.catch(function onErr() { return false })
 		logger.info({ triageAppeared, stillVisibleAt31s: stillVisible }, "triage check")
+
+		// Triage-take blank-submit semantics (§3.3). At this point we have
+		// NOT selected any option for the current item (the stress check
+		// burned through to this item without selecting). Press Space
+		// while the prompt is visible — should submit blank.
+		if (triageAppeared && stillVisible) {
+			const beforeSpaceCount = await readSubmittedCount(page)
+			await page.keyboard.press("Space")
+			await page.waitForTimeout(600)
+			const afterSpaceCount = await readSubmittedCount(page)
+			blankTriageSubmitLanded = afterSpaceCount === beforeSpaceCount + 1
+			const latestSel = await readLatestSelDisplay(page)
+			blankTriageSubmitWasBlank = latestSel === "(none)"
+			logger.info(
+				{ beforeSpaceCount, afterSpaceCount, latestSel, blankTriageSubmitLanded, blankTriageSubmitWasBlank },
+				"triage-take blank-submit semantics check"
+			)
+		}
 	}
 
 	const screenshotPath = `/tmp/phase3-c2-smoke-${Date.now()}.png`
@@ -278,8 +332,9 @@ async function runSmoke(): Promise<SmokeOutput> {
 	const pagehideBeaconFired = heartbeatRequests.length > heartbeatCountBeforeNav
 
 	await browser.close()
-	// The heartbeat beacon's 404 is expected in commit 2 (the handler
-	// lands in commit 3) — filter it out so the failure signal is real.
+	// The heartbeat beacon's 404 is expected in dev (handler still up
+	// from prior commits) — filter out 404 noise so the failure signal
+	// is real.
 	const errorEntries = consoleEntries.filter(function pickRealErrors(e) {
 		if (e.type !== "error" && e.type !== "pageerror") return false
 		if (e.text.includes("404") && e.text.toLowerCase().includes("not found")) return false
@@ -293,11 +348,12 @@ async function runSmoke(): Promise<SmokeOutput> {
 		triageAppeared,
 		firstSubmitLatencyMs,
 		heartbeatCount: heartbeatRequests.length,
-		keyboardSelectsOption,
+		digitKeyDoesNothing,
+		enterKeyDoesNothing,
+		mouseClickSelects,
 		pagehideBeaconFired,
-		stressSubmitsBefore,
-		stressSubmitsAfter,
-		stressPressDurationMs
+		blankTriageSubmitLanded,
+		blankTriageSubmitWasBlank
 	}
 }
 
@@ -316,11 +372,12 @@ async function main(): Promise<void> {
 		firstItemVisible,
 		firstSubmitLatencyMs,
 		heartbeatCount,
-		keyboardSelectsOption,
+		digitKeyDoesNothing,
+		enterKeyDoesNothing,
+		mouseClickSelects,
 		pagehideBeaconFired,
-		stressSubmitsBefore,
-		stressSubmitsAfter,
-		stressPressDurationMs
+		blankTriageSubmitLanded,
+		blankTriageSubmitWasBlank
 	} = result.data
 	logger.info(
 		{
@@ -329,11 +386,12 @@ async function main(): Promise<void> {
 			firstSubmitLatencyMs,
 			heartbeatCount,
 			triageAppeared: result.data.triageAppeared,
-			keyboardSelectsOption,
+			digitKeyDoesNothing,
+			enterKeyDoesNothing,
+			mouseClickSelects,
 			pagehideBeaconFired,
-			stressSubmitsBefore,
-			stressSubmitsAfter,
-			stressPressDurationMs,
+			blankTriageSubmitLanded,
+			blankTriageSubmitWasBlank,
 			errorCount: errs.length,
 			screenshotPath
 		},
@@ -342,34 +400,31 @@ async function main(): Promise<void> {
 	for (const e of errs) {
 		logger.error({ type: e.type, text: e.text }, "console error captured")
 	}
-	// The 5-Enter spam should produce exactly ONE additional submit.
-	// stressSubmitsBefore should be 1 (from the earlier roundtrip) and
-	// stressSubmitsAfter should be exactly 2. If the race window were
-	// open, this would land somewhere between 2 and 6.
-	const stressDelta = stressSubmitsAfter - stressSubmitsBefore
-	const stressOk = stressSubmitsBefore === 1 && stressSubmitsAfter === 2 && stressPressDurationMs <= 200
 	const ok =
 		firstItemVisible &&
 		submitsLogged === 1 &&
 		errs.length === 0 &&
 		result.data.triageAppeared &&
-		// Latency must be plausible: > 50ms (not the 2ms tight-loop bug)
+		// Latency must be plausible: > 50ms (not a tight-loop artifact)
 		// and < 18000ms (we click within the per-question target).
 		firstSubmitLatencyMs >= 50 &&
 		firstSubmitLatencyMs < 18_000 &&
-		// At least one heartbeat fired during the ~33s smoke run.
+		// At least one heartbeat fired during the smoke run.
 		heartbeatCount >= 1 &&
-		// Keyboard 1 selects an option (aria-pressed flips).
-		keyboardSelectsOption &&
+		// Input model (commit 3 / plan §3.0): digit + Enter keys are
+		// no-ops; mouse click selects.
+		digitKeyDoesNothing &&
+		enterKeyDoesNothing &&
+		mouseClickSelects &&
 		// pagehide listener fires a final beacon on close.
 		pagehideBeaconFired &&
-		// Race-window stress check: 5 Enter presses → 1 submit.
-		stressOk
+		// Triage-take blank-submit semantics (commit 3 / plan §3.3):
+		// Space-press while triage is visible AND nothing selected
+		// lands a submit with sel=(none). Random-pick is gone.
+		blankTriageSubmitLanded &&
+		blankTriageSubmitWasBlank
 	if (!ok) {
-		logger.error(
-			{ stressSubmitsBefore, stressSubmitsAfter, stressDelta, stressPressDurationMs },
-			"smoke FAILED"
-		)
+		logger.error("smoke FAILED")
 		process.exit(1)
 	}
 	logger.info("smoke PASSED")

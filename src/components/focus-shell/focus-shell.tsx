@@ -15,7 +15,12 @@
 // Owns:
 // - the useReducer state (shell-reducer.ts)
 // - the requestAnimationFrame tick loop (dispatches `tick` every frame)
-// - the keyboard listeners (T for triage, Enter for submit)
+// - the Space-key listener for triage-take (only fires when the triage
+//   prompt is visible — see commit 3 / plan §3.2). The real CCAT has
+//   NO keyboard shortcuts; the Space-on-triage shortcut survives only
+//   because the triage prompt is our pedagogical layer, not CCAT
+//   mechanics. Digit / letter / Enter shortcuts were stripped in
+//   commit 3 / plan §3.0.
 // - the async server-action calls (onSubmitAttempt, onEndSession)
 //
 // Renders:
@@ -166,34 +171,36 @@ function FocusShell(props: FocusShellProps) {
 		[state.submitPending, performSubmit, sessionId]
 	)
 
-	// Keyboard handler for `T` (triage take) and `Enter` (submit).
-	// 1–5 / A–E are handled by <ItemPrompt>'s own keydown listener.
+	// Space-key listener for triage-take. Per plan §3.2, this is the
+	// only keyboard shortcut in the focus shell. Fires only when the
+	// triage prompt is visible (`triagePromptFired === true`); when the
+	// prompt is hidden, Space does nothing (no submit, no select). The
+	// reducer's own `submitPending` guard is the secondary defense
+	// against double-take.
 	//
-	// Both handlers early-return if a submit is already in flight (read
-	// from stateRef so the listener doesn't need to re-attach on every
-	// render). The reducer also guards against double-submit, but doing
-	// it here too means we don't even queue a redundant action.
-	React.useEffect(function attachKeyboard() {
+	// `event.code === "Space"` is layout-independent (Dvorak / AZERTY
+	// users get the same physical key). `event.key === " "` is the
+	// fallback for environments where `code` is unavailable.
+	React.useEffect(function attachTriageKeyboard() {
 		function onKey(event: KeyboardEvent) {
 			const target = event.target
 			if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
 				return
 			}
-			const key = event.key
-			const lowerKey = key.toLowerCase()
-			const isTriage = lowerKey === "t"
-			const isEnter = key === "Enter"
-			if (!isTriage && !isEnter) return
+			// `event.code === "Space"` is layout-independent (Dvorak / AZERTY
+			// users get the same physical key). `event.key === " "` is the
+			// fallback for environments where `code` is unavailable. The
+			// boolean OR sits inside an `if` test (allowed by
+			// no-logical-or-fallback rule's "boolean conditionals" carve-out)
+			// rather than being assigned to a const.
+			if (event.code !== "Space" && event.key !== " ") return
+			if (!stateRef.current.triagePromptFired) return
 			event.preventDefault()
 			if (stateRef.current.submitPending) return
-			if (isTriage) {
-				dispatch({ kind: "triage_take", nowMs: performance.now() })
-				return
-			}
-			dispatch({ kind: "submit", nowMs: performance.now() })
+			dispatch({ kind: "triage_take", nowMs: performance.now() })
 		}
 		window.addEventListener("keydown", onKey)
-		return function detachKeyboard() {
+		return function detachTriageKeyboard() {
 			window.removeEventListener("keydown", onKey)
 		}
 	}, [])

@@ -8,16 +8,20 @@
 // value is exactly that the user has to make the decision to abandon.
 // The session timer is the only hard cutoff.
 //
-// The user takes the prompt by clicking it OR pressing `T` (the key
-// listener lives in the parent FocusShell).
+// The user takes the prompt by clicking it OR pressing `Space` (the
+// key listener lives in the parent FocusShell). The Space shortcut is
+// the only kept keyboard shortcut in the focus shell — see plan §3.0
+// / §3.2 for the rationale (the real CCAT has no keyboard shortcuts;
+// the triage prompt is our pedagogical layer, not CCAT mechanics).
 //
 // Phase 3 polish commit 2 re-docked this from bottom-center to
 // top-center per
 // docs/plans/phase-3-polish-practice-surface-features.md §5.4. The new
 // layout's full-width "Submit Answer" CTA at the bottom of the central
 // column would have visually competed with the old bottom-center
-// pill. The "Best move: guess and advance. (T)" copy is preserved
+// pill. The "Best move: guess and advance." prefix is preserved
 // verbatim — BrainLift-load-bearing per parent-plan §5.2 and PRD §6.1.
+// Only the hotkey-hint suffix was updated from `(T)` to `(Space)`.
 
 import { cn } from "@/lib/utils"
 
@@ -31,7 +35,9 @@ function TriagePrompt(props: TriagePromptProps) {
 	if (!props.visible) return null
 	const hasPlan = props.ifThenPlan !== undefined && props.ifThenPlan.length > 0
 	const message = hasPlan ? props.ifThenPlan : "Best move: guess and advance."
-	const hotkey = hasPlan ? null : <span className="ml-2 font-mono text-foreground/50 text-xs">(T)</span>
+	const hotkey = hasPlan ? null : (
+		<span className="ml-2 font-mono text-foreground/50 text-xs">(Space)</span>
+	)
 	return (
 		<button
 			type="button"

@@ -1,6 +1,19 @@
 "use client"
 
-import * as React from "react"
+// <ItemPrompt> — renders the question body + the radio-style option
+// buttons. Mouse-and-click only; no keyboard option-selection
+// shortcuts.
+//
+// Phase 3 polish commit 3 stripped the digit (1–5) + letter (A–E)
+// keyboard nav and the visible A/B/C/D/E label per
+// docs/plans/phase-3-polish-practice-surface-features.md §3.0 / §3.1.
+// The real CCAT is a browser-based mouse-and-click test with no
+// keyboard shortcuts; training muscle memory the real test won't honor
+// is a regression dressed as ergonomics. Selection is now click-only.
+// The triage prompt's `Space` shortcut stays because the triage prompt
+// is our pedagogical layer, not CCAT mechanics.
+
+import type * as React from "react"
 import { TextBody } from "@/components/item/body-renderers/text"
 import { OptionButton } from "@/components/item/option-button"
 import type { ItemBody } from "@/server/items/body-schema"
@@ -19,50 +32,15 @@ interface ItemPromptProps {
 
 function ItemPrompt(props: ItemPromptProps) {
 	const { body, options, selectedOptionId, onSelect } = props
-
-	// Keyboard navigation per design decision: number keys 1–5 and letter keys A–E
-	// select the corresponding option. Submission (Enter / Space) is owned by the
-	// FocusShell — we deliberately do not handle it here.
-	const onSelectRef = React.useRef(onSelect)
-	const optionsRef = React.useRef(options)
-	React.useEffect(
-		function syncRefs() {
-			onSelectRef.current = onSelect
-			optionsRef.current = options
-		},
-		[onSelect, options]
-	)
-
-	React.useEffect(function attachKeyboardNav() {
-		function handleKeydown(event: KeyboardEvent) {
-			const target = event.target
-			if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-				return
-			}
-			const index = optionIndexForKey(event.key)
-			if (index < 0) return
-			const opt = optionsRef.current[index]
-			if (!opt) return
-			event.preventDefault()
-			onSelectRef.current(opt.id)
-		}
-		window.addEventListener("keydown", handleKeydown)
-		return function detachKeyboardNav() {
-			window.removeEventListener("keydown", handleKeydown)
-		}
-	}, [])
-
 	return (
 		<div className="flex flex-col gap-6">
 			<div>{renderBody(body)}</div>
 			<div className="flex flex-col gap-2">
-				{options.map(function renderOption(option, index) {
-					const displayLabel = String.fromCharCode(0x41 + index)
+				{options.map(function renderOption(option) {
 					return (
 						<OptionButton
 							key={option.id}
 							id={option.id}
-							displayLabel={displayLabel}
 							text={option.text}
 							selected={option.id === selectedOptionId}
 							onSelect={function selectThis() {
@@ -74,18 +52,6 @@ function ItemPrompt(props: ItemPromptProps) {
 			</div>
 		</div>
 	)
-}
-
-function optionIndexForKey(key: string): number {
-	if (key >= "1" && key <= "5") {
-		return key.charCodeAt(0) - "1".charCodeAt(0)
-	}
-	if (key.length !== 1) return -1
-	const upper = key.toUpperCase()
-	if (upper >= "A" && upper <= "E") {
-		return upper.charCodeAt(0) - "A".charCodeAt(0)
-	}
-	return -1
 }
 
 function renderBody(body: ItemBody): React.ReactNode {

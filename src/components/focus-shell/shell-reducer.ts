@@ -98,14 +98,6 @@ function initShellState(args: InitArgs): ShellState {
 	}
 }
 
-function pickRandomOptionId(item: ItemForRender): string | undefined {
-	if (item.options.length === 0) return undefined
-	const idx = Math.floor(Math.random() * item.options.length)
-	const picked = item.options[idx]
-	if (!picked) return undefined
-	return picked.id
-}
-
 interface TickContext {
 	perQuestionTargetMs: number
 	sessionType: "diagnostic" | "drill" | "full_length" | "simulation" | "review"
@@ -164,14 +156,17 @@ function reduceTriageTake(
 	) {
 		triageTakenInWindow = true
 	}
-	let selectedOptionId = state.selectedOptionId
-	if (selectedOptionId === undefined) {
-		selectedOptionId = pickRandomOptionId(state.currentItem)
-	}
+	// Triage-take semantics (plan §3.3): submit whatever the user has
+	// selected, blank if nothing. The previous random-pick behavior was
+	// dropped in commit 3 — it modeled "guess and advance" too literally.
+	// The BrainLift reframe is "knowing when to abandon a question is
+	// the strategic skill" (handoff §2). Abandoning cleanly with no
+	// selection is the right behavior for a user who has no leaning;
+	// random picks contaminate the mastery model with noise that looks
+	// like real-but-wrong attempts.
 	return {
 		...state,
 		triageTaken: triageTakenInWindow,
-		selectedOptionId,
 		submitPending: true
 	}
 }
