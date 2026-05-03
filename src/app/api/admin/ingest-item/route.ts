@@ -16,13 +16,13 @@ const requestSchema = z.object({
 	options: z
 		.array(
 			z.object({
-				id: z.string().min(1).max(64),
+				id: z.string().regex(/^[0-9a-z]{8}$/),
 				text: z.string().min(1)
 			})
 		)
 		.min(2)
 		.max(5),
-	correctAnswer: z.string().min(1).max(64),
+	correctAnswer: z.string().regex(/^[0-9a-z]{8}$/),
 	explanation: z.string().min(1).optional(),
 	strategyId: z.string().uuid().optional(),
 	metadata: z

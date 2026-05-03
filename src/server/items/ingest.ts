@@ -11,7 +11,7 @@ import { embeddingBackfillWorkflow } from "@/workflows/embedding-backfill"
 const ErrIngestValidation = errors.new("ingest validation failed")
 
 const optionSchema = z.object({
-	id: z.string().min(1).max(64),
+	id: z.string().regex(/^[0-9a-z]{8}$/),
 	text: z.string().min(1)
 })
 
@@ -56,7 +56,7 @@ const ingestInput = z.object({
 	difficulty: z.enum(["easy", "medium", "hard", "brutal"]),
 	body: itemBody,
 	options: z.array(optionSchema).min(2).max(5),
-	correctAnswer: z.string().min(1).max(64),
+	correctAnswer: z.string().regex(/^[0-9a-z]{8}$/),
 	explanation: z.string().min(1).optional(),
 	strategyId: z.string().uuid().optional(),
 	metadata: ingestMetadata.optional()
@@ -74,6 +74,26 @@ interface IngestRealItemInput {
 		originalExplanation?: string
 		importSource?: string
 		structuredExplanation?: StructuredExplanation
+	}
+}
+
+function assertReferencedOptionsExist(
+	structured: StructuredExplanation,
+	optionIds: ReadonlySet<string>
+): void {
+	for (const part of structured.parts) {
+		for (const ref of part.referencedOptions) {
+			if (!optionIds.has(ref)) {
+				logger.warn(
+					{ referencedOption: ref, optionIds: [...optionIds] },
+					"ingestRealItem: referencedOption not in options"
+				)
+				throw errors.wrap(
+					ErrIngestValidation,
+					`referencedOption '${ref}' not in options`
+				)
+			}
+		}
 	}
 }
 
@@ -104,6 +124,10 @@ async function ingestRealItem(input: IngestRealItemInput): Promise<{ itemId: str
 			"ingestRealItem: correctAnswer does not match any option id"
 		)
 		throw errors.wrap(ErrIngestValidation, "correctAnswer not in options")
+	}
+
+	if (data.metadata?.structuredExplanation) {
+		assertReferencedOptionsExist(data.metadata.structuredExplanation, optionIds)
 	}
 
 	const metadataJson: {
