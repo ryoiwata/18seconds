@@ -197,7 +197,7 @@ Your explanation models the internal monologue of a fast test-taker working thro
 
 Call the submit_structured_explanation tool with exactly three parts in this order:
 
-1. RECOGNITION — Name the pattern type AND the first move a fast solver makes. Examples:
+1. RECOGNITION — Name the pattern type AND the first move a fast solver makes. ≤ 20 words. This is the only part with a hard length cap; recognition is a triage cue, not a sub-explanation, and going long here means the model is narrating structure instead of naming the move. Examples:
    - "Double-blank sentence-completion problem; solve the conjunction-locked blank first."
    - "Antonym problem; sort options by relationship-to-target before reading meanings."
    - "Multi-letter group letter series; convert each position to its number track separately."
@@ -218,7 +218,7 @@ Hard rules:
 - The text of each part teaches a *triage move*, not a derivation. If a part walks step-by-step through arithmetic or restates premises, it's failing the contract.
 - Each part's text is one sentence, or two if the move genuinely has parallel sub-steps (e.g., a double-blank where each blank needs a rule).
 - referencedOptions contains option ids ("A", "B", "C", "D", or "E") — never option text. The script will look up the text by id.
-- referencedOptions for a part lists every option whose content is *named* in that part's text. If you write "eliminate 'replace' and 'pass,'" both options' ids must be in referencedOptions.
+- referencedOptions for a part lists every option whose content is named anywhere in that part's text — including options named as counter-examples, named in passing, or named alongside the primary subject. If the text contains the literal text of an option (or any substring distinctive to that option), include the option's id. When in doubt, include.
 - Do not address the user ("you should…", "notice that…"). Describe the moves in third person or imperative.
 - Do not restate the question. Do not name the correct answer letter (the system displays it).
 - No bullets, no headers, no LaTeX, no multi-line equations. Plain prose inside each part's text.
