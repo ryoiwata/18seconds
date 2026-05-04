@@ -1,45 +1,37 @@
-// /diagnostic/run — server component entry that actually runs the
+// /diagnostic/run — server component entry that runs the diagnostic
 // session. The pre-diagnostic explainer at /diagnostic links here.
 //
-// Phase 3 polish commit 3 moved this from /diagnostic/page.tsx so the
-// /diagnostic route can host the explainer. Behavior unchanged from
-// the original page — only the route shape changed. See
-// docs/plans/phase-3-polish-practice-surface-features.md §6.1.
+// docs/plans/phase3-diagnostic-flow.md §7 + commit 1.
 //
-// Plan §6.1 (flow) + parent-plan §9.4 (in-progress-stale-finalize edge
-// cases). Before kicking off `startSession`, we look for any prior
-// diagnostic session for this user that is still
-// `ended_at_ms IS NULL`. Per parent-plan §9.4, two edge cases land
-// here:
+// Single source of truth for orphan-in-progress finalization is
+// `startSession` (src/server/sessions/start.ts). When this page calls
+// `startSession({ userId, type: "diagnostic" })`, the action internally:
 //
-//   - User started a diagnostic, navigated away, and returned. The
-//     (app) layout's gate failed (no completed diagnostic), redirected
-//     to /diagnostic (the explainer), then the user clicked Start
-//     Diagnostic and landed here. The orphan in-progress row needs to
-//     be finalized as 'abandoned' before we start a fresh diagnostic.
+//   - fresh   (last_heartbeat_ms within ABANDON_THRESHOLD_MS): returns
+//             the existing sessionId — fresh-resume path.
+//   - stale   (older): finalizes the orphan as 'abandoned' atomically
+//             with the fresh insert, writing the cron-compatible shape
+//             `ended_at_ms = last_heartbeat_ms + HEARTBEAT_GRACE_MS`.
 //
-//   - User closed the tab and returned BEFORE the abandon-sweep cron
-//     finalized the orphan. Same shape; same fix.
+// The previous `abandonInProgressDiagnosticsAndStart` helper that lived
+// here unconditionally finalized every in-progress diagnostic with
+// `ended_at_ms = NOW()`. That diverged from the cron-compatible shape
+// AND prevented fresh-resume from working at all. Collapsed into
+// `startSession`'s idempotency in this commit.
 //
-// Phase 3 ships abandon-then-restart (the simpler choice). Resume is a
-// Phase 5 polish item.
-//
-// The `startSession` action is initiated as a promise here and passed
-// through to <DiagnosticContent> (a client component) which consumes
-// it via React.use() — the promise-drilling pattern from
+// `startSession` is initiated as a promise here and passed through to
+// <DiagnosticContent> (a client component) which consumes it via
+// React.use() — the promise-drilling pattern from
 // rules/rsc-data-fetching-patterns.md. The page itself is non-async.
 
-import { and, eq, isNull, sql } from "drizzle-orm"
 import * as React from "react"
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
-import { db } from "@/db"
-import { practiceSessions } from "@/db/schemas/practice/practice-sessions"
 import { logger } from "@/logger"
 import { startSession } from "@/server/sessions/start"
 import { DiagnosticContent } from "@/app/(diagnostic-flow)/diagnostic/run/content"
 
-async function abandonInProgressDiagnosticsAndStart(): Promise<{
+async function startDiagnosticForCurrentUser(): Promise<{
 	sessionId: string
 	firstItem: Awaited<ReturnType<typeof startSession>>["firstItem"]
 }> {
@@ -51,38 +43,11 @@ async function abandonInProgressDiagnosticsAndStart(): Promise<{
 		logger.debug({}, "/diagnostic/run: no auth session at page time, redirect /login")
 		redirect("/login")
 	}
-	const userId = session.user.id
-
-	// Finalize any orphan in-progress diagnostic. Per parent-plan §9.4,
-	// one query covers both the "in-progress" and "recently-abandoned-
-	// but-not-swept" cases — the WHERE clause is the same.
-	const finalized = await db
-		.update(practiceSessions)
-		.set({
-			endedAtMs: sql`(extract(epoch from now()) * 1000)::bigint`,
-			completionReason: "abandoned"
-		})
-		.where(
-			and(
-				eq(practiceSessions.userId, userId),
-				eq(practiceSessions.type, "diagnostic"),
-				isNull(practiceSessions.endedAtMs)
-			)
-		)
-		.returning({ id: practiceSessions.id })
-
-	if (finalized.length > 0) {
-		logger.info(
-			{ userId, count: finalized.length },
-			"/diagnostic/run: finalized stale in-progress diagnostic(s) before fresh start"
-		)
-	}
-
-	return startSession({ userId, type: "diagnostic" })
+	return startSession({ userId: session.user.id, type: "diagnostic" })
 }
 
 function Page() {
-	const sessionPromise = abandonInProgressDiagnosticsAndStart()
+	const sessionPromise = startDiagnosticForCurrentUser()
 	return (
 		<React.Suspense fallback={<DiagnosticSkeleton />}>
 			<DiagnosticContent sessionPromise={sessionPromise} />
