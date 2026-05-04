@@ -1,32 +1,48 @@
-# 18 Seconds — Feature Roadmap (post-Phase 3 sub-phase 2)
+# 18 Seconds — Feature Roadmap (post-Phase 3 close)
 
-This document collects features Leo wants to build, reconciles them against what's already shipped or in-PRD-but-not-yet-shipped, and adds Alpha/Superbuilders-relevant performance features that improve CCAT prep outcomes. Status as of 2026-05-04: focus shell + diagnostic flow + Mastery Map shipped; sub-phase 1 + 2 are production-deployable as a unit.
+This document collects features Leo wants to build, reconciles them against what's already shipped or in-PRD-but-not-yet-shipped, and adds Alpha/Superbuilders-relevant performance features that improve CCAT prep outcomes. Status as of 2026-05-04: Phase 3 closed end-to-end (sub-phases 1 + 2 + 3 + 4 all shipped). The user-facing happy path runs against real items; sub-phase 4 commit 3 is the in-flight close-out doc commit. Production-deploy coupling is unblocked, and a deploy-and-dogfood interlude gates Phase 5 planning detail.
 
-The features are grouped by what they actually are: some are already in the PRD (and just need to get built), some extend the PRD with new scope, and some are net-new ideas worth deciding to build or not build.
+The features are grouped by what they actually are: some are already in the PRD (and just need to get built), some extend the PRD with new scope, and some are net-new ideas worth deciding to build or not build. Several features will require PRD updates at plan-time — those are flagged inline (`PRD update required`) and aggregated in the "PRD-update queue" section.
 
 ---
 
 ## Categorization summary
 
-| # | Feature | Status | Effort | Priority |
-|---|---------|--------|--------|----------|
-| 1 | Practice tests (full-length) | PRD §4.5; partial scaffolding | M | High |
-| 2 | Admin question portal | Net-new (PRD has admin ingest only) | M | Medium |
-| 3 | Click-to-highlight explanation review | Architecturally enabled; net-new UI | M | High |
-| 4 | LLM question generation | PRD §3.2; Phase 4 not yet started | L | High |
-| 5 | Helpful explanations | Already shipped (BrainLift fast-triage explain prompt) | — | — |
-| 6 | Stats / progress dashboard | PRD §6 (Mastery Map covers some); extends scope | M | High |
-| 7 | Dojo mode (adaptive drill) | PRD §4.2 (already adaptive); rename/UI extension | S | Medium |
-| 8 | Independent timer mode | Net-new | S | Low-Medium |
-| 9 | CCAT lessons | Net-new (PRD has strategies, not lessons) | L | Medium |
-| 10 | Test history | PRD §6.6; not yet built | M | High |
-| 11 | Vocab study guide | Net-new | M | Medium |
-| 12 | Logout button | Trivial | XS | High |
-| A1 | Cohort comparisons (Alpha-relevant) | Net-new addition | M | Medium |
-| A2 | Confidence calibration tracking | Net-new addition | S | High |
-| A3 | Pattern-recognition speed drills | Net-new addition | M | Medium |
-| A4 | Pre-session readiness check | Net-new addition | S | Low-Medium |
-| A5 | Spaced-repetition tightening | PRD §4.3; not yet built | S | Medium |
+| # | Feature | Status | Effort | Priority | PRD update? |
+|---|---------|--------|--------|----------|---|
+| 1 | Practice tests (full-length) | PRD §4.5; Phase 5 deliverable | M | High (Phase 5) | — |
+| 2 | Admin question portal | Net-new (PRD has admin ingest only) | M | Medium (post-Phase 5) | Required |
+| 3 | Click-to-highlight explanation review | Architecturally enabled; net-new UI | M | High (Phase 5; depends on post-session review surface) | Required |
+| 4 | LLM question generation | PRD §3.2; Phase 4 not yet started | L | High (post-Phase 5; multi-round) | — |
+| 5 | Helpful explanations | Already shipped (BrainLift fast-triage explain prompt) | — | — | — |
+| 6 | Stats / progress dashboard | Extends PRD §6; ships paired with #10 | M | High (post-Phase 5) | — |
+| 7 | Dojo mode (adaptive drill) | PRD §4.2 + UI rename/belt indicator | S | Medium (Phase 5 small extension) | Required |
+| 8 | Independent timer mode | Net-new | S | Low-Medium (mini-round) | Required |
+| 9 | CCAT lessons | Net-new (PRD has strategies, not lessons) | L | Medium | — |
+| 10 | Test history | PRD §6.6; ships paired with #6 | M | High (post-Phase 5) | — |
+| 11 | Vocab study guide | Net-new | M | Medium | — |
+| 12 | Logout button | **SHIPPED** (sub-phase 3, commit `20948de`) | — | — | — |
+| A1 | Cohort comparisons (Alpha-relevant) | Considered, not prioritized | M | — | — |
+| A2 | Confidence calibration tracking | Core scope (carried forward; pending Leo's confirmation — see open questions) | S | High | — |
+| A3 | Pattern-recognition speed drills | Considered, not prioritized | M | — | — |
+| A4 | Pre-session readiness check | Re-elevated by Leo's 2026-05-04 list (was demoted at sub-phase 2 close); rationale needs Leo's confirmation — see open questions | S | Pending | Required |
+| A5 | Spaced-repetition tightening | PRD §4.3; Phase 5 deliverable | S | Medium (Phase 5) | — |
+
+---
+
+## PRD-update queue
+
+Five features in this roadmap require PRD updates before plan-time. Each PRD update is its own commit, scoped to the one feature that needs it, and lands at the START of the round that builds the feature — NOT in this roadmap revision. Listed here as a sequencing reminder so the round-opening commit doesn't surprise anyone:
+
+- **#2 Admin question portal** — expands PRD §3.1 (admin ingest only) to include list/detail/edit/bulk-action surfaces. PRD update is small (one section addition).
+- **#3 Click-to-highlight explanation review** — UI surface for the structured-explanation contract that Phase 2 already shipped architecturally. PRD addition belongs in §6.5 (post-session review).
+- **#7 Dojo mode** — rename from "drill" to "dojo" + belt-indicator UI extends PRD §4.2's drill-mode framing. PRD update is naming + a UI-surface paragraph.
+- **#8 Independent timer mode** — net-new feature, not in PRD at all. PRD addition belongs in §4 (engine surfaces) as a new sub-section.
+- **#A4 Pre-session readiness check** — net-new metacognitive feature, not in PRD. PRD addition belongs in §5.3 (NarrowingRamp) as an extension to the pre-session protocol.
+
+Two features that EXTEND existing PRD sections without requiring an update because their addition is already specified:
+- #6 Stats dashboard extends PRD §6 (Mastery Map already covers some of it).
+- #10 Test history is PRD §6.6.
 
 ---
 
@@ -50,7 +66,7 @@ The PRD already specifies this: 50 questions in 15 minutes, real-test difficulty
 
 ## 2. Admin question portal
 
-**Status: Net-new. PRD §3.1 specifies admin ingest form only; viewing/reviewing isn't covered.**
+**Status: Net-new. PRD §3.1 specifies admin ingest form only; viewing/reviewing isn't covered.** *PRD update required* (expands §3.1 with list/detail/edit/bulk-action surfaces; one PRD-section addition).
 
 Today: admin ingest form lets Leo (or other admins on the ALLOW-list at `src/config/admins.ts`) create new items one at a time. There's no list view, no filter, no edit-existing-item path, no review-quality-of-existing-items path.
 
@@ -68,7 +84,7 @@ Today: admin ingest form lets Leo (or other admins on the ALLOW-list at `src/con
 
 ## 3. Click-to-highlight in post-session explanation review
 
-**Status: Architecturally enabled (Phase 2 shipped opaque option ids + structured explanations); net-new UI.**
+**Status: Architecturally enabled (Phase 2 shipped opaque option ids + structured explanations); net-new UI.** *PRD update required* (UI surface in PRD §6.5 post-session review). **Dependency:** requires Phase 5's post-session review surface to ship first; this feature is the second commit on top of that surface, not a parallel one.
 
 Phase 2's structured-explanation contract (`{parts: [{kind, text, referencedOptions}]}`) is forward investment for exactly this feature. Each explanation part already records which option ids it references; the rendered prose is a deterministic projection.
 
@@ -148,7 +164,7 @@ What Leo's request adds:
 
 ## 7. Dojo mode (adaptive drill that escalates)
 
-**Status: PRD §4.2 already specifies adaptive drills. Leo's request mostly renames + extends UI.**
+**Status: PRD §4.2 already specifies adaptive drills. Leo's request mostly renames + extends UI.** *PRD update required* (rename "drill" → "dojo" + belt-indicator UI extends §4.2's drill-mode framing).
 
 The PRD's adaptive drill mode already does this: `selectionStrategy: "adaptive"` recomputes the difficulty tier per item based on in-session performance. Items get harder as the user demonstrates competence.
 
@@ -165,7 +181,7 @@ The PRD's adaptive drill mode already does this: `selectionStrategy: "adaptive"`
 
 ## 8. Independent timer mode
 
-**Status: Net-new. Not in PRD.**
+**Status: Net-new. Not in PRD.** *PRD update required* (new sub-section in PRD §4 engine-surfaces).
 
 Use the focus shell's timer + audio + bar chrome as a standalone tool — no questions, no options, just a Submit button + the dual-bar per-question timer + the urgency-loop audio + the session timer bar.
 
@@ -247,11 +263,9 @@ The verbal section's first three sub-types (synonyms, antonyms, analogies) are v
 
 ## 12. Logout button
 
-**Status: Trivial. Should already exist; if not, ~5-line commit.**
+**Status: SHIPPED.** Sub-phase 3 commit `20948de` added `<SignOutButton>` to the Mastery Map's header (top-right). Calls Auth.js v5's `signOut({ redirectTo: "/login" })`. Visible on `/` only — explicitly absent from focus-shell routes (`/diagnostic/run`, `/drill/[subTypeId]/run`) and from the diagnostic explainer.
 
-Auth.js v5 supports logout via `signOut()`. The button should live in a global header/nav, accessible from any route.
-
-If it's missing, it's a 1-commit fix. Probably should ship in the next routine commit, not as a discrete round.
+Verified end-to-end via `scripts/dev/smoke/sign-out-button.ts`: button renders on `/`; absent in focus shell; click clears the auth_sessions row and redirects to `/login`; post-logout `GET /` redirects to `/login` via the (app) gate. No further work.
 
 ---
 
@@ -273,7 +287,7 @@ Show the user's stats relative to a cohort: "you're scoring at the 70th percenti
 
 ### A2. Confidence calibration tracking
 
-**Status: Core scope.** Calibration is a known performance differentiator on timed tests; the data trains the triage discipline directly. Slotted into Round G (or earlier if a slot opens).
+**Status: Core scope (carried forward from sub-phase 2 close revision; pending Leo's confirmation).** Leo's 2026-05-04 feature list omits A2 — possibly a deliberate cut, possibly an oversight in the visible-features compilation. Carried forward unchanged as core scope per the prior revision's elevation rationale. **Open question (see "Open product questions"): confirm A2 still belongs in scope.** Calibration is a known performance differentiator on timed tests; the data trains the triage discipline directly. Slotted into Round G (or earlier if a slot opens).
 
 After each item, the user clicks one of: "I'm confident I got this right," "I think I got it right," "I'm guessing." Track confidence vs. actual outcome over time.
 
@@ -301,13 +315,17 @@ A drill mode where each "question" is a short pattern (e.g., a number series wit
 
 ### A4. Pre-session readiness check
 
-**Status: Considered, not prioritized.** Adds friction to session start; defer until evidence users want it. The PRD §5 NarrowingRamp already covers some of the same ground without an extra metacognitive form.
+**Status: Re-elevated by Leo's 2026-05-04 list (was demoted at sub-phase 2 close); rationale needs Leo's confirmation — see "Open product questions."** *PRD update required* (extends PRD §5.3 NarrowingRamp).
 
 Before a session, a 30-second self-check: "rate your focus right now (1-5)," "rate your sleep last night (1-5)," "what's your goal for this session?" Then the session starts.
 
 The data feeds back into the post-session review and the stats dashboard: "you scored 8% better on sessions where your reported focus was 4 or higher."
 
-**Why it matters**: high performers know their own state — they don't drill when exhausted, they don't full-length-test on no sleep. Surfacing the correlation between self-reported state and actual outcomes makes the user more aware of their own patterns. This is a metacognitive feature, similar to confidence calibration (#A2).
+**Why it matters (Leo's 2026-05-04 framing — the metacognitive case)**: high performers know their own state — they don't drill when exhausted, they don't full-length-test on no sleep. Surfacing the correlation between self-reported state and actual outcomes makes the user more aware of their own patterns. This is a metacognitive feature, similar to confidence calibration (#A2).
+
+**Reversal of the prior demotion.** A4 was demoted at sub-phase 2 close with the rationale "adds friction to session start; defer until evidence users want it." Leo's 2026-05-04 list re-includes A4 with the metacognitive framing above. The new framing constitutes the rationale for reversing the demotion: A4 isn't friction-for-its-own-sake; it's a structured prompt that builds the same metacognitive loop A2 builds, applied pre-session rather than per-item. The friction concern is real but bounded — 30 seconds before a session is a small ask if the data feeds a real "you score 8% better when your reported focus is 4+" signal. Slotting A4 alongside A2 in Round G (metacognitive pair) is the natural fit.
+
+The reversal is conditional on Leo confirming the new rationale stands and that the friction concern doesn't override it. Until confirmed, the slot in Round G is held but the round shouldn't plan A4-specific work.
 
 **Scope estimate**: ~2-3 commits (form, schema, surfacing in stats). Integrates with the existing NarrowingRamp from PRD §5 — could fold into that surface as additional pre-session content.
 
@@ -331,25 +349,36 @@ The PRD's spaced-repetition queue is designed but unimplemented. Items the user 
 
 ## Recommended sequencing
 
-Based on what's user-facing, what unblocks subsequent rounds, and what's grounded in the BrainLift fast-triage framing:
+Based on what's user-facing, what unblocks subsequent rounds, what's grounded in the BrainLift fast-triage framing, and post-Phase 3 dogfood signal informing Phase 5+ priorities:
 
-**Round A — Logout button + sub-phase 3 (drill mode polish).** Ship the logout button as a 1-commit fix into whatever round comes next. Sub-phase 3 of Phase 3 audits the existing drill scaffolding from `d722017`, which is the destination the Mastery Map's CTA already pushes to.
+**Round A — Logout button + sub-phase 3 (drill mode polish). SHIPPED 2026-05-04.** Three commits: `969705e` (plan), `b5510af` (empty-bank pane), `20948de` (sign-out button), `c54f4e2` (close-out). Logout shipped per #12 above. Drill mode audited green against post-sub-phase-1 state; empty-bank pane covers zero-live-item sub-types.
 
-**Round B — Sub-phase 4 (heartbeats + cron-runner wiring).** Small mini-round; cleans up Phase 3's last surface. Doesn't block users.
+**Round B — Sub-phase 4 (heartbeats + cron-runner wiring). SHIPPED 2026-05-04** (close-out commit in flight). Four commits: `6016275` (plan), `9ce8325` (security fix — ownership-scope on heartbeat route), `78eb047` (smoke), close-out. Audit surfaced and closed a pre-deploy security gap; plan-prompt's expected three-piece build collapsed to a one-piece security-scope add since client + route + cron entry already existed.
 
-**Round C — Stats dashboard + history (combined; #6 + #10).** First post-Phase-3 round. ~6-8 commits. The data already exists in `attempts` + `practice_sessions`; this round is rendering it usefully.
+**Round Bx — Deploy-and-dogfood interlude.** Non-feature round; **gates Phase 5 planning detail**. Promotes Phase 3 to production users, runs ~1-2 weeks of real-user signal collection, then informs Phase 5 sub-phase priorities. The interlude is necessary because Phase 5 is interconnected enough (full-length tests + spaced-repetition + post-session review + click-to-highlight + dojo escalation) that a wrong sub-phase ordering can produce rework. Real-user signal is the cheapest way to make that ordering call. No code commits in Bx — the work is dogfood + observation + decisions for Round E's sub-phase structure.
 
-**Round D — Phase 4 sub-phases (LLM generation; #4).** Multi-round body of work. Generator sub-phase, validator sub-phase, scorer + deployer sub-phase, admin generation page sub-phase. Likely 3-4 weeks of work.
+**Round C — Stats dashboard + history (combined; #6 + #10).** First post-Phase-3 user-facing round, post-dogfood. ~6-8 commits. The data already exists in `attempts` + `practice_sessions`; this round is rendering it usefully. Does NOT depend on Phase 5 — can ship in parallel with or before Phase 5 sub-phases if dogfood signal favors stats over engine completeness.
 
-**Round E — Full-length tests + spaced-repetition + post-session review with click-to-highlight (#1 + #3 + A5).** Phase 5 deliverables, all interconnected. ~10-15 commits across 2-3 sub-phases.
+**Round E — Phase 5 master arc.** The next major engine-completeness arc. Sub-phase sequencing drafted AFTER Round Bx dogfood (per the interlude's purpose). High-level sub-phase contents:
 
-**Round F — Admin question portal (#2).** Mid-sized round. Lower priority because it's not user-facing, but needed once the bank exceeds Leo's manual-review capacity.
+  - Post-session review surface (the foundation; everything else builds on it). Drill post-session UI per PRD §6.5.
+  - Full-length tests (#1; PRD §4.5). Re-uses post-session review surface.
+  - Click-to-highlight in post-session explanation review (#3; PRD §6.5 extension). Depends on post-session review surface being live; second commit on top of it.
+  - Spaced-repetition queue (#A5; PRD §4.3). Re-uses post-session review surface for the "got right but slowly" detection path.
+  - Dojo escalation UI (#7). Belt indicator, post-session-summary copy. Builds on the adaptive drill mode that Phase 5 lights up.
+  - Adaptive difficulty walking (closes the `ErrAdaptiveDeferred` placeholder in `selection.ts`). Foundation for #7's escalation indicator.
 
-**Round G — Confidence calibration (#A2).** Core-scope metacognitive feature; calibration data trains triage discipline directly. ~3-4 commits.
+  Estimated total: ~15-25 commits across 4-6 sub-phases. Per-sub-phase planning happens AT ROUND-START, informed by dogfood. Each sub-phase follows the `docs/plans/phase3-*.md` pattern.
 
-**Round H — Dojo mode UI (#7) + independent timer (#8).** Belt-indicator UI for adaptive drills, plus the standalone timer surface. ~5-7 commits combined.
+**Round D — Phase 4 sub-phases (LLM generation; #4).** Sequencing position is post-Phase 5 despite the lower phase number. The PRD's candidate-promotion shadow-mode (30 days before enforcement) wants a mature testbank before generated items start landing — Phase 5's full-length-test framing surfaces real-user accuracy/latency signal that the validator can calibrate against. Multi-round body of work: generator sub-phase, validator sub-phase, scorer + deployer sub-phase, admin generation page sub-phase. Likely 3-4 weeks of work.
 
-**Round I — Vocab study guide (#11).** Schema + flashcard route + spaced-repetition for vocab. Word list authoring is parallel work. ~5-7 commits + vocab list workstream.
+**Round F — Admin question portal (#2).** Mid-sized round. Lower priority because it's not user-facing, but needed once the bank exceeds Leo's manual-review capacity. Slots after Round D since Round D's generated items are the volume that triggers the need.
+
+**Round G — Metacognitive features: Confidence calibration (#A2) [core scope, carried forward] + Pre-session readiness check (#A4) [re-elevated, pending confirmation].** Both features build the same metacognitive loop applied at different points (per-item for A2, pre-session for A4). Pairing them lets one round's stats-dashboard surfacing handle both signals (correlate confidence-vs-outcome, focus-rating-vs-outcome). ~5-6 commits combined IF A4 stays elevated and IF A2 stays in scope; round shape is contingent on both open questions resolving. Fallback: A2 alone (~3-4 commits).
+
+**Round H — Dojo mode UI (#7) + independent timer (#8).** Belt-indicator UI for adaptive drills (depends on Round E's adaptive walking shipping first), plus the standalone timer surface. ~5-7 commits combined. Could split if dogfood signal favors timer over dojo or vice versa.
+
+**Round I — Vocab study guide (#11).** Schema + flashcard route + spaced-repetition for vocab (re-uses Round E's spaced-repetition primitives). Word list authoring is parallel work. ~5-7 commits + vocab list workstream.
 
 **Round J — Lessons (#9).** Most labor-intensive content workstream of any feature. Technical surface is small (~3-4 commits); content authoring is weeks.
 
@@ -370,27 +399,44 @@ These are PRD non-goals or have been explicitly considered and rejected:
 
 ## Open product questions for Leo
 
-Items that need explicit decisions before some of the rounds above can plan. These aren't blocking the current Phase 3 work; they're forward-looking calls.
+Items that need explicit decisions. The first two are blocking — they affect this revision's correctness — and should resolve before Round Bx (deploy-and-dogfood) finishes; the rest are forward-looking and don't block current rounds.
 
-1. **Lessons authoring (#9): how thorough?** A 1500-word lesson per sub-type vs. a 3000-word lesson is a meaningfully different investment. Worth deciding before lesson authoring starts.
+### Blocking (resolve before Round G plans)
 
-2. **Vocab study guide (#11): how long is the list?** 500 words is a reasonable starter; 1000+ words is more comprehensive but takes longer to populate. Bigger lists also make spaced repetition more meaningful but increase the time-to-completion for users who want to "study the whole list."
+1. **A2 (confidence calibration): is it still in scope?** A2 was elevated to core scope at sub-phase 2 close with the rationale "calibration is a known performance differentiator on timed tests; the data trains the triage discipline directly." Leo's 2026-05-04 feature list omits A2 entirely. Two readings:
+   - *Deliberate cut* — the project no longer wants A2. If so, demote to "Considered, not prioritized" and remove from Round G.
+   - *Oversight* — A2 was missed when compiling the visible feature list, status unchanged. If so, the carry-forward is correct as-is.
 
-3. **Confidence calibration (#A2): three buttons or a slider?** Three-button discrete (confident / think / guess) is cleaner; a slider is more granular. Three-button is recommended (less cognitive overhead during a timed test) but worth confirming.
+   The roadmap currently carries A2 forward as core scope (the conservative read — don't silently demote). Confirm or redirect.
 
-4. **Independent timer (#8) vs. dojo mode (#7) overlap.** They share the focus-shell-as-engine pattern but serve different use cases. Worth deciding whether they're discrete features or two configurations of one feature ("blank items + adaptive blanks" as a unified interface).
+2. **A4 (pre-session readiness): does the metacognitive framing override the prior "adds friction" demotion?** A4 was demoted at sub-phase 2 close with the rationale "adds friction to session start; defer until evidence users want it." Leo's 2026-05-04 list re-includes A4 with the metacognitive framing ("high performers know their own state — they don't drill when exhausted"). The new framing is the rationale for reversal — A4 isn't friction-for-its-own-sake; it's a structured prompt that builds the same metacognitive loop A2 builds, applied pre-session. The friction concern is real but bounded (30 seconds).
 
-5. **Stats dashboard (#6) chart granularity.** Per-session line charts? Per-day rollups? Both? Most useful is probably per-session (one point per session) for sessions and per-day rollup for sub-type accuracy/latency. Worth confirming before chart rendering work starts.
+   The roadmap currently re-elevates A4 with the new rationale captured in §A4. Confirm the rationale stands AND that the friction concern is acceptable, OR keep A4 demoted (in which case Round G shrinks to A2-only or evaporates if A2 is also cut).
+
+### Forward-looking (don't block current rounds)
+
+3. **Lessons authoring (#9): how thorough?** A 1500-word lesson per sub-type vs. a 3000-word lesson is a meaningfully different investment. Worth deciding before lesson authoring starts.
+
+4. **Vocab study guide (#11): how long is the list?** 500 words is a reasonable starter; 1000+ words is more comprehensive but takes longer to populate. Bigger lists also make spaced repetition more meaningful but increase the time-to-completion for users who want to "study the whole list."
+
+5. **Confidence calibration (#A2): three buttons or a slider?** Three-button discrete (confident / think / guess) is cleaner; a slider is more granular. Three-button is recommended (less cognitive overhead during a timed test) but worth confirming. Conditional on A2 staying in scope (open question 1).
+
+6. **Independent timer (#8) vs. dojo mode (#7) overlap.** They share the focus-shell-as-engine pattern but serve different use cases. Worth deciding whether they're discrete features or two configurations of one feature ("blank items + adaptive blanks" as a unified interface).
+
+7. **Stats dashboard (#6) chart granularity.** Per-session line charts? Per-day rollups? Both? Most useful is probably per-session (one point per session) for sessions and per-day rollup for sub-type accuracy/latency. Worth confirming before chart rendering work starts.
 
 ---
 
 ## Notes for the next planning round
 
-Whatever round Leo picks next, the planning prompt should:
+The next planning round is **Round Bx — deploy-and-dogfood**, which is non-feature work. After Round Bx closes, whatever round Leo picks next, the planning prompt should:
 
 - Reference the relevant section of this roadmap.
 - Confirm whether the round is "build per the PRD" (e.g., #1 full-length tests, #4 generation pipeline, #10 history, #A5 spaced repetition — all already PRD'd) vs. "extends scope" (everything else).
-- Pull the right verification protocol items from SPEC §6.14 (the implementation-notes section that's growing as a generalizable cheat sheet).
-- Note any deploy-coupling — sub-phase 1 + 2 are already production-ready; subsequent rounds either ship independently or couple with later rounds.
+- If the round needs a PRD update (per the PRD-update queue above), the round's first commit lands the PRD update; this is separate from the per-round plan commit. Round-opening shape is `docs(prd): <feature> — § update` → `docs(plans): add <round> plan` → implementation commits → `docs: close <round>`.
+- Pull the right verification protocol items from SPEC §6.14 (the implementation-notes section that's grown to 16 entries through Phase 3 and is the generalizable cheat sheet for future rounds).
+- Note any deploy-coupling — Phase 3 is fully production-ready as of sub-phase 4 close; subsequent rounds either ship independently or couple with later rounds.
 
-Sub-phase 3 (drill mode polish) is the natural next round per the close-out of sub-phase 2. It'd open with the same audit-then-build pattern that worked in sub-phase 2 (audit `d722017`'s drill scaffolding, identify drift from current focus-shell + sub-phase-1 state, ship targeted fixes).
+**Round-Bx-specific planning notes** (the dogfood interlude): no per-round plan file is required. The "round" is a deploy + observation window. Useful pre-round artifacts: a dogfood-signal-collection checklist (what to observe, what to log), an empty Round-C-or-Round-E pick decision document that fills in based on signal. These can live as inline notes in this roadmap or as a `docs/plans/round-bx-dogfood-notes.md` if Leo prefers a dedicated file.
+
+**Round-C planning notes** (when Round Bx closes and Round C is picked): the natural shape is the same audit-then-build pattern that worked in sub-phases 2-4. Audit existing `attempts` + `practice_sessions` query patterns + check whether any aggregations already exist (e.g., `triageRolling30d` from sub-phase 1), identify drift from current Mastery Map render, ship targeted fixes + new aggregations + chart components.
