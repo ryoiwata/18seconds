@@ -1,0 +1,396 @@
+# 18 Seconds — Feature Roadmap (post-Phase 3 sub-phase 2)
+
+This document collects features Leo wants to build, reconciles them against what's already shipped or in-PRD-but-not-yet-shipped, and adds Alpha/Superbuilders-relevant performance features that improve CCAT prep outcomes. Status as of 2026-05-04: focus shell + diagnostic flow + Mastery Map shipped; sub-phase 1 + 2 are production-deployable as a unit.
+
+The features are grouped by what they actually are: some are already in the PRD (and just need to get built), some extend the PRD with new scope, and some are net-new ideas worth deciding to build or not build.
+
+---
+
+## Categorization summary
+
+| # | Feature | Status | Effort | Priority |
+|---|---------|--------|--------|----------|
+| 1 | Practice tests (full-length) | PRD §4.5; partial scaffolding | M | High |
+| 2 | Admin question portal | Net-new (PRD has admin ingest only) | M | Medium |
+| 3 | Click-to-highlight explanation review | Architecturally enabled; net-new UI | M | High |
+| 4 | LLM question generation | PRD §3.2; Phase 4 not yet started | L | High |
+| 5 | Helpful explanations | Already shipped (BrainLift fast-triage explain prompt) | — | — |
+| 6 | Stats / progress dashboard | PRD §6 (Mastery Map covers some); extends scope | M | High |
+| 7 | Dojo mode (adaptive drill) | PRD §4.2 (already adaptive); rename/UI extension | S | Medium |
+| 8 | Independent timer mode | Net-new | S | Low-Medium |
+| 9 | CCAT lessons | Net-new (PRD has strategies, not lessons) | L | Medium |
+| 10 | Test history | PRD §6.6; not yet built | M | High |
+| 11 | Vocab study guide | Net-new | M | Medium |
+| 12 | Logout button | Trivial | XS | High |
+| A1 | Cohort comparisons (Alpha-relevant) | Net-new addition | M | Medium |
+| A2 | Confidence calibration tracking | Net-new addition | S | High |
+| A3 | Pattern-recognition speed drills | Net-new addition | M | Medium |
+| A4 | Pre-session readiness check | Net-new addition | S | Low-Medium |
+| A5 | Spaced-repetition tightening | PRD §4.3; not yet built | S | Medium |
+
+---
+
+## 1. Practice tests (full-length)
+
+**Status: PRD §4.5; not yet built. Phase 5 deliverable per the architecture plan.**
+
+The PRD already specifies this: 50 questions in 15 minutes, real-test difficulty mix and randomized interleaving across the v1 sub-types, pulls from the real-items bank when possible, exits to post-session review on completion or timeout. Full-length tests are independent of skill level — same content distribution as the real CCAT.
+
+**What Leo's request adds**: confirmation that this should be representative of an actual exam from the testbank (not adaptive). The PRD already specifies this as `selectionStrategy: "fixed_curve"` from `src/config/diagnostic-mix.ts` (or a sibling for full-length). The sampling logic is structurally identical to the diagnostic — only the difficulty mix and the session timer differ.
+
+**What's missing technically**:
+- Full-length-specific config in `src/config/diagnostic-mix.ts` (or a parallel `src/config/full-length-mix.ts`)
+- Route wiring for `/full-length/run` + post-session
+- Session timer = 15 minutes (vs. diagnostic's untimed)
+- 30-second strategy-review gate post-session per PRD §6.5
+
+**Scope estimate**: ~5-7 commits (audit Phase 5 scaffolding, mix config, route, session-engine wiring, post-session strategy gate, doc updates). Pattern matches sub-phase 1 (diagnostic flow).
+
+---
+
+## 2. Admin question portal
+
+**Status: Net-new. PRD §3.1 specifies admin ingest form only; viewing/reviewing isn't covered.**
+
+Today: admin ingest form lets Leo (or other admins on the ALLOW-list at `src/config/admins.ts`) create new items one at a time. There's no list view, no filter, no edit-existing-item path, no review-quality-of-existing-items path.
+
+**What this feature is**:
+- A list view of all items, filterable by `(subTypeId, difficulty, status, source)`.
+- Per-item detail view showing the prompt, options, correct answer, explanation, structured-explanation, embedding metadata, validator outcome (for generated items), and attempt history (how often served, how often correct, median latency).
+- Edit-in-place for any field. Edits write a new row with `status: candidate` if the item is `live` (preserving the original); admin-only "promote edit" action lifts the candidate to `live` and retires the original.
+- Bulk actions: mark `retired`, regenerate explanation (calls `scripts/regenerate-explanations.ts`'s logic via a server action), recompute embedding.
+
+**Why this matters**: As the bank grows past ~150 items (Phase 4's generation pipeline lands more items, plus the OCR-imported 99 stage-1 items waiting for stage-2 explanations), Leo needs a way to spot-check quality without running SQL. Generated items especially — the validator catches obvious failures, but edge-case ambiguity is something only a human reviewer catches.
+
+**Scope estimate**: ~6-8 commits (list route, detail route, edit form, server actions for edit/retire/regenerate, attempt-stats query, doc updates). Mid-sized round; not blocking Phase 5.
+
+---
+
+## 3. Click-to-highlight in post-session explanation review
+
+**Status: Architecturally enabled (Phase 2 shipped opaque option ids + structured explanations); net-new UI.**
+
+Phase 2's structured-explanation contract (`{parts: [{kind, text, referencedOptions}]}`) is forward investment for exactly this feature. Each explanation part already records which option ids it references; the rendered prose is a deterministic projection.
+
+**What this feature is**: in the post-session review, when the user is reading the explanation for an item they got wrong (or right), clicking on a part of the explanation highlights or strikes through the option ids it references.
+
+Two modes per Leo's request:
+- **Strike-through eliminations**: clicking the `elimination` part strikes through the options it referenced (e.g., "cuts 'replace' and 'place' immediately" → strike `replace` and `place`).
+- **Highlight likely answers**: clicking the `tie-breaker` part highlights the options it referenced (e.g., "between 'pass' and 'sell'" → highlight both, the correct answer wins visually).
+- The `recognition` part typically has empty `referencedOptions` (it names a pattern, not specific options) — clicking it does nothing or shows a small tooltip.
+
+**Why this matters for CCAT prep**: the post-session review is where users actually learn. Passive reading of explanation prose is a known weak signal; making the explanation interactive forces engagement with the recognize/eliminate/decide structure that the BrainLift fast-triage framing teaches.
+
+**What's missing technically**:
+- Post-session review surface (Phase 5 deliverable; not built yet).
+- Client component that consumes `metadata_json.structuredExplanation` and renders parts as clickable elements.
+- State management for which option ids are currently struck/highlighted (per-part toggle).
+
+**Scope estimate**: ~3-5 commits, conditional on Phase 5's post-session review surface being built first. Could land as part of the Phase 5 post-session round (recommended) or as a feature-flagged addition after.
+
+---
+
+## 4. LLM question generation
+
+**Status: PRD §3.2; Phase 4 deliverable. Not yet started.**
+
+Already specified in the PRD: four-stage server pipeline (`generateItem → validateItem → scoreItem → deployItem`) orchestrated as a Vercel Workflow. Generator: Claude Sonnet 4 emitting structured JSON. Validator: GPT-4o, 1-5 confidence per check. Scorer: weighted sum. Deployer: writes with `status: candidate`, embedding included.
+
+**What's already in place**: the generator's Zod schema templates at `src/config/item-templates.ts`. The opaque-ids architecture from Phase 2 means the generation pipeline inherits opaque-id semantics for free.
+
+**Open product calls** (from architecture plan, not yet decided):
+- Per-sub-type generation rate and target bank size (the PRD's bank-target grid is 11 × 4 = 44 cells).
+- How aggressive validator confidence thresholds are (the PRD says ≥4 on all four checks AND nearest-neighbor cosine < 0.92).
+- Candidate-promotion shadow mode duration (PRD §4: 30 days before enforcement).
+
+**Scope estimate**: Phase 4 is its own multi-round body of work. Probably 3-4 sub-phases (generator + templates, validator wiring, scorer + deployer, admin generation page).
+
+---
+
+## 5. Helpful explanations
+
+**Status: Already shipped. The BrainLift fast-triage explain prompt is the most product-distinctive piece of the project.**
+
+The four-pass OCR pipeline's explain pass produces structured triage explanations: recognition (name the pattern), elimination (single cut rule, not multi-step derivation), conditional tie-breaker (only when elimination doesn't cover all wrong options).
+
+Where it currently shows up: rendered as `items.explanation` text after the user submits an item. Phase 5's post-session review surface uses this directly; click-to-highlight (#3 above) extends the render shape to interactive.
+
+No scope here — feature exists. Worth reaffirming because the rest of the roadmap depends on the explain contract being settled.
+
+---
+
+## 6. Stats / progress dashboard
+
+**Status: Mastery Map covers per-sub-type mastery state and triage adherence; extending to richer stats is net-new.**
+
+What the Mastery Map shows today:
+- 11-icon grid with mastery state (learning / fluent / mastered / decayed)
+- Single-line "today's near goal" derived from mastery state + target percentile + target date
+- 30-day rolling triage adherence
+
+What Leo's request adds:
+- **Per-sub-type accuracy over time** (line chart, last N sessions or last 30 days)
+- **Per-sub-type latency over time** (line chart, median latency per session)
+- **Per-practice-test breakdown** (how each full-length test went: total accuracy, sub-type breakdown, time used)
+- **Streak / consistency tracking** (how many days in a row the user has practiced)
+
+**Why this matters**: short prep horizons (PRD §1: "days to weeks") mean users want to see whether their daily practice is producing measurable improvement. The Mastery Map answers "where do I stand right now?" but not "am I getting better?"
+
+**What's missing technically**:
+- Aggregation queries over `attempts` joined to `practice_sessions` for per-session and per-day rollups
+- Server-rendered `/stats` route or tab
+- Chart rendering (recharts is already in the React-artifact toolchain for this project — usable elsewhere too, or pick one of: recharts, chart.js, plain SVG)
+- Per-test detail route (`/history/[sessionId]` shows the test and per-question outcomes)
+
+**Scope estimate**: ~4-6 commits (route, queries, chart components, per-test detail view). Overlaps with #10 (history) — they should ship together as one stats-and-history round.
+
+---
+
+## 7. Dojo mode (adaptive drill that escalates)
+
+**Status: PRD §4.2 already specifies adaptive drills. Leo's request mostly renames + extends UI.**
+
+The PRD's adaptive drill mode already does this: `selectionStrategy: "adaptive"` recomputes the difficulty tier per item based on in-session performance. Items get harder as the user demonstrates competence.
+
+**What Leo's request adds**:
+- **Naming**: "Dojo mode" instead of "drill" — clearer mental model. The dojo framing implies practice-with-resistance, which matches the adaptive escalation.
+- **Visual feedback**: a small indicator showing the current "difficulty belt" (white belt → yellow → green → blue → brown → black, mapping to easy / medium / hard / brutal / etc.). Subtle gamification.
+- **Session-end summary**: "you reached [tier] on [sub-type]" framing instead of generic accuracy stats.
+
+**What's already in place**: the adaptive logic itself works (PRD §4.2 + Phase 5 scope). What's net-new is the UI framing.
+
+**Scope estimate**: ~2-3 commits (rename in UI copy, belt-indicator component, post-session-summary copy). Small round; can fold into the Phase 5 drill mode work.
+
+---
+
+## 8. Independent timer mode
+
+**Status: Net-new. Not in PRD.**
+
+Use the focus shell's timer + audio + bar chrome as a standalone tool — no questions, no options, just a Submit button + the dual-bar per-question timer + the urgency-loop audio + the session timer bar.
+
+**The use case**: a user wants to take a practice test from a different source (e.g., a paper booklet, a friend's flashcard, an online practice site that doesn't have its own timer). They start the independent timer, answer the question on the external source, click Submit when they're done, advance to the next "blank" question. The chrome trains pace discipline without the app providing content.
+
+**Why this matters for CCAT prep**: a real CCAT prep cycle includes content from multiple sources (Criteria's own free practice test, paper books, friend's questions). The 18-second pace discipline is what 18 Seconds uniquely trains. Letting users use the timer chrome alone extends the pace-training surface beyond the app's own bank.
+
+**What's missing technically**:
+- Route: `/timer` (or `/dojo/timer` if it lives under dojo mode).
+- A new session type with `selectionStrategy: "blank"` — no item selection, just the timer infrastructure.
+- The focus shell already supports rendering with arbitrary `<ItemSlot>` content; a blank-question variant can be built as a new `<ItemSlot>` variant that renders just "Question N" with no prompt/options.
+- Configurable session length and per-question target (e.g., 50 questions × 18s, or 10 × 30s for SAT-style timing).
+
+**Scope estimate**: ~3-4 commits (route, blank-question item variant, session-type config, doc updates). Smaller than most rounds; could slot in as a quick mini-round.
+
+---
+
+## 9. CCAT lessons (per-sub-type teaching content)
+
+**Status: Net-new. PRD has strategies (3 per sub-type, plain-text notes); Leo's request is more substantial.**
+
+The PRD's strategy library is small: 3 entries per sub-type × 11 sub-types = 33 entries, each one a paragraph or two of plain text. The strategies surface in post-session review (paired with sub-types the user struggled with) and on the history tab.
+
+Leo's request — "lessons for CCAT test taking for certain groups of problems" — implies something larger: structured tutorial content per sub-type, walking the user through what the sub-type tests, common patterns, worked examples, and common traps.
+
+**What this feature is**:
+- A `/lessons/[subTypeId]` route per sub-type (11 routes for v1).
+- Each lesson is a long-form structured doc: introduction, 3-5 worked examples (with full explanations using the BrainLift fast-triage framing), common patterns, common traps, practice-tips section.
+- Lessons are static content (markdown rendered via MDX or similar) — no LLM generation.
+- Cross-link from the Mastery Map: "Learn more about [sub-type]" link from each icon.
+
+**Why this matters for CCAT prep**: high-scoring CCAT performers have explicit pattern recognition for each sub-type. Time-pressured pattern recognition is what 18 Seconds trains; the lessons would teach what the patterns ARE, before the user starts practicing under time pressure. This is the "study mode" complement to drill mode.
+
+**Authoring overhead**: this is the most labor-intensive feature on the list because the content is hand-written. 11 lessons × ~1500-3000 words each = 16k-33k words of careful pedagogical content. Could be scaffolded by an LLM and edited; can't be entirely LLM-generated without quality drift.
+
+**Scope estimate**: ~3-4 commits for the technical surface (route, MDX rendering, cross-links from Mastery Map, doc updates). The content itself is a separate workstream — probably 2-4 weeks of writing per Leo's pace, depending on how thorough.
+
+---
+
+## 10. Test history (with go-back-to-any-problem)
+
+**Status: PRD §6.6 specifies a history tab. Not yet built.**
+
+What the PRD specifies: history tab on the Mastery Map, browsable by sub-type or by session, click-into-session shows per-item attempts.
+
+**What Leo's request adds (not new)**: explicit ability to go back to any problem from any past test. This is what `/history/[sessionId]` was already going to be.
+
+**What's missing technically**:
+- `/history` route — list of past sessions, filterable by type (diagnostic / drill / full-length / simulation).
+- `/history/[sessionId]` — per-test breakdown showing all 50 (or N) items in order, with per-item: prompt, user's answer, correct answer, latency, whether user took triage, explanation.
+- `/history/[sessionId]/item/[itemId]` (optional) — drilled-down per-item view for re-reading the explanation. Could fold into per-test breakdown if the page stays manageable.
+- Aggregation queries.
+
+**Why this matters for CCAT prep**: revisiting questions you got wrong is a known-effective study technique. The CCAT specifically tests pattern recognition, so seeing the same item type in multiple contexts (during a drill, then again during a full-length test, then in history review) reinforces the pattern.
+
+**Scope estimate**: ~4-5 commits. Overlaps significantly with #6 (stats dashboard) — they should ship as one round titled "stats and history." Together: ~6-8 commits.
+
+---
+
+## 11. Vocab study guide
+
+**Status: Net-new. Not in PRD.**
+
+The verbal section's first three sub-types (synonyms, antonyms, analogies) are vocabulary-bound: if you don't know the word, no amount of pattern recognition saves you. The CCAT's vocabulary skews toward GRE-level words — recondite, perfunctory, sanguine, etc.
+
+**What this feature is**:
+- A vocabulary list, organized by frequency or difficulty.
+- Per-word: the word, definition, part of speech, example sentence, synonyms, antonyms (where applicable).
+- Flashcard-style review: show the word, user thinks of definition, click to reveal, mark known/unknown.
+- Spaced-repetition queue (SM-2-style, similar to PRD §4.3's review queue) so unknown words resurface.
+
+**Why this matters for CCAT prep**: among the 11 v1 sub-types, three are vocabulary-bound. A user who struggles on synonyms/antonyms can't drill their way to mastery without expanding their vocabulary. The strategy library helps with elimination tactics ("pick the more general opposite") but doesn't help if the user doesn't know the candidate words.
+
+**Source for the vocab list**: ~500-1000 high-frequency CCAT-style words. Existing GRE vocab lists (Magoosh, Manhattan Prep) are reasonable starting points, filtered to words that actually show up in CCAT-style questions. The OCR-imported 99 stage-1 items can be mined for vocab to seed the list.
+
+**Scope estimate**: ~5-7 commits (vocab schema, list-render route, flashcard component, spaced-repetition queue, source-the-word-list workstream). Authoring the word list is parallel work to the technical scope.
+
+---
+
+## 12. Logout button
+
+**Status: Trivial. Should already exist; if not, ~5-line commit.**
+
+Auth.js v5 supports logout via `signOut()`. The button should live in a global header/nav, accessible from any route.
+
+If it's missing, it's a 1-commit fix. Probably should ship in the next routine commit, not as a discrete round.
+
+---
+
+## Alpha/Superbuilders-relevant additions
+
+Features Leo didn't list but that align with how Alpha/Superbuilders cohorts measurably improve performance outcomes. Each grounded in a specific reason CCAT performance gets better with practice.
+
+### A1. Cohort comparisons
+
+**Status: Considered, not prioritized.** Cohort comparisons need a user base big enough for cohorts to be statistically meaningful — premature for the current scale. Revisit once user volume justifies it.
+
+Show the user's stats relative to a cohort: "you're scoring at the 70th percentile among users prepping in the same window." Anonymized aggregate, no leaderboard, no individual identifiability.
+
+**Why it matters**: Alpha-style cohort dynamics are a known motivator. Users prep harder when they have a relative-position signal. The PRD non-goal of "no leaderboards, no social, no cohorts" specifically rules out individual identifiability — but anonymized percentile positioning isn't social, it's stats.
+
+**Scope estimate**: ~3-4 commits (aggregate query, percentile computation, render on Mastery Map periphery and post-session review).
+
+---
+
+### A2. Confidence calibration tracking
+
+**Status: Core scope.** Calibration is a known performance differentiator on timed tests; the data trains the triage discipline directly. Slotted into Round G (or earlier if a slot opens).
+
+After each item, the user clicks one of: "I'm confident I got this right," "I think I got it right," "I'm guessing." Track confidence vs. actual outcome over time.
+
+**Why it matters**: high-scoring CCAT performers are well-calibrated — they know which items they got right and which they guessed on. The triage discipline depends on calibration: "should I commit to this answer or move on?" A user who thinks they're right when they're often wrong gets bad signal from the triage prompt.
+
+**The data trains pattern recognition**: post-session review can flag "you said you were confident on these 3 questions you got wrong — review these patterns specifically." That's higher-leverage feedback than "you got 3 questions wrong."
+
+**Scope estimate**: ~3-4 commits (confidence-input UI on item submit, schema column on `attempts`, post-session-review surfacing, calibration chart in stats dashboard).
+
+---
+
+### A3. Pattern-recognition speed drills
+
+**Status: Considered, not prioritized.** Overlaps with adaptive drill mode in ways that aren't clearly net-additive as a discrete feature. Revisit as a possible variant inside Dojo mode (#7) rather than as a standalone surface.
+
+A drill mode where each "question" is a short pattern (e.g., a number series with one missing term, a single analogy, a single synonym) shown for a fixed short window (3-5 seconds), then the user types or selects the answer. Trains the recognize-fast skill in isolation from elimination/decision.
+
+**Why it matters**: CCAT speed comes from pattern recognition, not from doing-arithmetic-faster. Isolated pattern-recognition training is a known-effective sub-skill drill, particularly for verbal.synonyms/antonyms/analogies and numerical.number_series/letter_series.
+
+**Different from the regular drill**: the regular drill exercises the full triage loop (recognize → eliminate → decide). The pattern-recognition drill exercises only recognize. Faster cycle, more reps per minute.
+
+**Scope estimate**: ~4-5 commits. Could share infrastructure with #8 (independent timer) since both are timer-led variants on the focus shell.
+
+---
+
+### A4. Pre-session readiness check
+
+**Status: Considered, not prioritized.** Adds friction to session start; defer until evidence users want it. The PRD §5 NarrowingRamp already covers some of the same ground without an extra metacognitive form.
+
+Before a session, a 30-second self-check: "rate your focus right now (1-5)," "rate your sleep last night (1-5)," "what's your goal for this session?" Then the session starts.
+
+The data feeds back into the post-session review and the stats dashboard: "you scored 8% better on sessions where your reported focus was 4 or higher."
+
+**Why it matters**: high performers know their own state — they don't drill when exhausted, they don't full-length-test on no sleep. Surfacing the correlation between self-reported state and actual outcomes makes the user more aware of their own patterns. This is a metacognitive feature, similar to confidence calibration (#A2).
+
+**Scope estimate**: ~2-3 commits (form, schema, surfacing in stats). Integrates with the existing NarrowingRamp from PRD §5 — could fold into that surface as additional pre-session content.
+
+---
+
+### A5. Spaced-repetition queue tightening
+
+**Status: PRD §4.3 specifies a 1/3/7/21 day SM-2 ladder. Not yet built.**
+
+The PRD's spaced-repetition queue is designed but unimplemented. Items the user got wrong (or got right but slowly) resurface at increasing intervals.
+
+**What's already specified**: SM-2 ladder, 1/3/7/21 days, "review" session pulls only items currently due, available from Mastery Map as a single button.
+
+**What Phase 5 adds technically**: the `review_queue` table, the queue-refresh workflow, the review-session route, the Mastery-Map "Review (N due)" button.
+
+**Why it's important enough to flag here**: short prep horizons (PRD §1) make spaced repetition the highest-value retention mechanic available. Without it, every drill teaches in isolation; with it, items the user struggled with come back at the right intervals to consolidate the pattern recognition.
+
+**Scope estimate**: ~5-7 commits. Already in the PRD; just needs to land in Phase 5.
+
+---
+
+## Recommended sequencing
+
+Based on what's user-facing, what unblocks subsequent rounds, and what's grounded in the BrainLift fast-triage framing:
+
+**Round A — Logout button + sub-phase 3 (drill mode polish).** Ship the logout button as a 1-commit fix into whatever round comes next. Sub-phase 3 of Phase 3 audits the existing drill scaffolding from `d722017`, which is the destination the Mastery Map's CTA already pushes to.
+
+**Round B — Sub-phase 4 (heartbeats + cron-runner wiring).** Small mini-round; cleans up Phase 3's last surface. Doesn't block users.
+
+**Round C — Stats dashboard + history (combined; #6 + #10).** First post-Phase-3 round. ~6-8 commits. The data already exists in `attempts` + `practice_sessions`; this round is rendering it usefully.
+
+**Round D — Phase 4 sub-phases (LLM generation; #4).** Multi-round body of work. Generator sub-phase, validator sub-phase, scorer + deployer sub-phase, admin generation page sub-phase. Likely 3-4 weeks of work.
+
+**Round E — Full-length tests + spaced-repetition + post-session review with click-to-highlight (#1 + #3 + A5).** Phase 5 deliverables, all interconnected. ~10-15 commits across 2-3 sub-phases.
+
+**Round F — Admin question portal (#2).** Mid-sized round. Lower priority because it's not user-facing, but needed once the bank exceeds Leo's manual-review capacity.
+
+**Round G — Confidence calibration (#A2).** Core-scope metacognitive feature; calibration data trains triage discipline directly. ~3-4 commits.
+
+**Round H — Dojo mode UI (#7) + independent timer (#8).** Belt-indicator UI for adaptive drills, plus the standalone timer surface. ~5-7 commits combined.
+
+**Round I — Vocab study guide (#11).** Schema + flashcard route + spaced-repetition for vocab. Word list authoring is parallel work. ~5-7 commits + vocab list workstream.
+
+**Round J — Lessons (#9).** Most labor-intensive content workstream of any feature. Technical surface is small (~3-4 commits); content authoring is weeks.
+
+
+---
+
+## Out of scope (explicit non-goals)
+
+These are PRD non-goals or have been explicitly considered and rejected:
+
+- General aptitude prep beyond CCAT (non-goal per PRD §1).
+- Mobile-native apps (web only per PRD §1).
+- Live tutoring or AI chat (non-goal per PRD §1).
+- Direct individual leaderboards (PRD §1; cohort comparisons in #A1 are anonymized aggregates only).
+- Image-bearing sub-types (abstract reasoning, attention-to-detail, numerical.data_interpretation) — deferred to v2 per PRD §10.
+
+---
+
+## Open product questions for Leo
+
+Items that need explicit decisions before some of the rounds above can plan. These aren't blocking the current Phase 3 work; they're forward-looking calls.
+
+1. **Lessons authoring (#9): how thorough?** A 1500-word lesson per sub-type vs. a 3000-word lesson is a meaningfully different investment. Worth deciding before lesson authoring starts.
+
+2. **Vocab study guide (#11): how long is the list?** 500 words is a reasonable starter; 1000+ words is more comprehensive but takes longer to populate. Bigger lists also make spaced repetition more meaningful but increase the time-to-completion for users who want to "study the whole list."
+
+3. **Confidence calibration (#A2): three buttons or a slider?** Three-button discrete (confident / think / guess) is cleaner; a slider is more granular. Three-button is recommended (less cognitive overhead during a timed test) but worth confirming.
+
+4. **Independent timer (#8) vs. dojo mode (#7) overlap.** They share the focus-shell-as-engine pattern but serve different use cases. Worth deciding whether they're discrete features or two configurations of one feature ("blank items + adaptive blanks" as a unified interface).
+
+5. **Stats dashboard (#6) chart granularity.** Per-session line charts? Per-day rollups? Both? Most useful is probably per-session (one point per session) for sessions and per-day rollup for sub-type accuracy/latency. Worth confirming before chart rendering work starts.
+
+---
+
+## Notes for the next planning round
+
+Whatever round Leo picks next, the planning prompt should:
+
+- Reference the relevant section of this roadmap.
+- Confirm whether the round is "build per the PRD" (e.g., #1 full-length tests, #4 generation pipeline, #10 history, #A5 spaced repetition — all already PRD'd) vs. "extends scope" (everything else).
+- Pull the right verification protocol items from SPEC §6.14 (the implementation-notes section that's growing as a generalizable cheat sheet).
+- Note any deploy-coupling — sub-phase 1 + 2 are already production-ready; subsequent rounds either ship independently or couple with later rounds.
+
+Sub-phase 3 (drill mode polish) is the natural next round per the close-out of sub-phase 2. It'd open with the same audit-then-build pattern that worked in sub-phase 2 (audit `d722017`'s drill scaffolding, identify drift from current focus-shell + sub-phase-1 state, ship targeted fixes).
