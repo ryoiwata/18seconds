@@ -4,7 +4,7 @@ interface TextBodyProps {
 
 function TextBody(props: TextBodyProps) {
 	return (
-		<p className="whitespace-pre-wrap font-serif text-base text-foreground leading-relaxed">
+		<p className="whitespace-pre-wrap text-foreground text-lg leading-relaxed">
 			{props.text}
 		</p>
 	)
