@@ -1155,6 +1155,27 @@ Compare alternative query shapes when the planner could pick differently at prod
 
 The `scripts/dev/smoke/diagnostic-mastery-recompute.ts` smoke verifies the trigger→runtime→upsert chain via the abandon-sweep cron route (the only HTTP-accessible workflow trigger surface; both `endSession` and the cron call `start(masteryRecomputeWorkflow, [{sessionId}])` per §7.3, so workflow-fires-from-cron implies workflow-fires-from-endSession by call-shape equivalence). **The equivalence is an inference, not direct verification.** If `endSession`'s call site is ever modified, re-verify the equivalence by extending the smoke or by manual end-to-end exercise.
 
+#### 6.14.9 Empty-state-during-async-workflow rendering pattern
+
+When a UI surface depends on data that's populated by an async workflow trigger (e.g., the Mastery Map's `mastery_state` rows are written by `masteryRecomputeWorkflow`, fired async from `endSession`), the page-level read can land *before* the workflow's writes. The Mastery Map's `<ComputingState>` (`src/components/mastery-map/computing-state.tsx`) is the canonical handling shape; reuse it for any future workflow-driven UI rather than re-deriving:
+
+- **Detection.** Branch on the data-shape that's empty during the race window, NOT on a separate "is computing" boolean. For the Mastery Map, the gate-passing `(app)` layout guarantees the user has a completed-non-abandoned diagnostic, so `masteryStates.size === 0` is sufficient — there's no other code path that produces an empty map at this surface. Adding a separate `isComputing` prop would just duplicate the same condition.
+- **Pane.** A simple heading + body. No structural skeleton mirroring the populated render — the populated render's layout isn't load-bearing during this window, and a faithful skeleton invites visual flicker on transition.
+- **Polling.** `setTimeout(2s)` → `router.refresh()` → parent re-renders. The Suspense boundary handles the re-render; the new server-component render reads fresh data, and if the data is now non-empty the parent branches to the populated form. The pane unmounts naturally on transition.
+- **Budget.** 30 seconds per mount instance. After the budget elapses, the pane shows a fallback message ("Still computing — refresh manually if this takes longer") and stops polling. The reset-on-refresh property of `setTimeout`-based budgets is acceptable: in the common case (workflow completes within budget) the pane unmounts before the timer fires; in the rare stuck-workflow case the user sees the pane indefinitely but can recover via manual refresh.
+- **Why no Suspense alone?** Suspense waits on a promise that resolves when *some* condition is met. The condition here is "external system finished its async work" — not a promise the page can await. Polling is the appropriate primitive.
+
+#### 6.14.10 Race-window UI verification pattern
+
+When verifying UI that surfaces during a brief race window (e.g., the empty-state pane between a workflow's trigger and its writes), prefer **instrumenting the test setup to reproduce the condition stably** over **catching the natural race window via tightly-timed observation**. The Mastery Map's empty-state smoke (`scripts/dev/smoke/mastery-map-empty-state.ts`) is the canonical example:
+
+- The natural race window is ~1.1 seconds (per the §5.2 smoke's measurement of trigger→upsert latency on the dev DB).
+- Catching that window via DOM observation after a real diagnostic completion is flaky-by-default — too short for reliable harness sampling, especially under headless-browser warmup variance.
+- The smoke instead sets up the empty-state preconditions DIRECTLY: insert a `practice_sessions` row with `completion_reason='completed'` and `ended_at_ms` set, but skip the `masteryRecomputeWorkflow` trigger, leaving `mastery_state` empty. The pane is now stable until the test deliberately upserts rows.
+- The branch under test (`states.size === 0 → <ComputingState>`) is identical between the natural race and the artificial setup, so the rendered behavior verified by the smoke matches what production users see during their natural race window.
+
+The tradeoff is "reproducing the production race precisely" for "verifying the rendered behavior reliably." Document the tradeoff in the smoke header so a future contributor reading the test understands the gap. This pattern generalizes — any future race-window UI (e.g., review-queue empty state, drill-completion-vs-mastery-recompute window) should follow the same shape.
+
 ---
 
 ## 7. Server actions, route handlers, and workflows

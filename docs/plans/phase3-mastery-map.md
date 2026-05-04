@@ -1,6 +1,15 @@
 # Plan — Phase 3, sub-phase 2: the Mastery Map
 
-> **Status: planning, approved, not yet implemented.** This plan is the canonical reference for sub-phase 2 of Phase 3 (the Mastery Map). It is the round that closes the production-deploy coupling held open by sub-phase 1 (`docs/plans/phase3-diagnostic-flow.md` §1, deploy-coupling note): sub-phase 1 sits on `main` but cannot promote to production until sub-phase 2 makes the post-session "Save and continue" landing route render correctly. The diagnostic flow (sub-phase 1) is treated as a stable dependency — its five commits (`468dda6` → `43a8a0d`) shipped 2026-05-04 and are not touched here. Where this plan disagrees with prior phase plans (`docs/plans/phase-3-practice-surface.md`) it wins for the Mastery Map surface.
+> **Status: shipped 2026-05-04.** The four-commit sequence below landed on `main` cleanly:
+>
+>   - Commit 1 — `e615408` — `docs(phase3): add mastery-map sub-phase 2 plan`
+>   - Commit 2 — `38f659c` — `feat(mastery-map): empty-state pane for the post-diagnostic race window` (the audit findings folded into this commit's preamble per the plan's `if-clean-fold-in` path)
+>   - Commit 3 — `675ecc1` — `test(mastery-map): smoke for empty-state polling and transition`
+>   - Commit 4 — *this commit* — `docs: close phase3-mastery-map plan; SPEC §6.14 implementation notes; architecture-plan refresh`
+>
+> **Production-deploy unlock.** Sub-phase 2's close also closes the deploy-coupling held open by sub-phase 1 (`docs/plans/phase3-diagnostic-flow.md` §1). Sub-phase 1 + 2 are now production-ready: a real user can sign up, take the diagnostic, fill out the onboarding form, and land on a useful Mastery Map — including the empty-state pane during the brief workflow window between `endSession` and `mastery_state` upserts. This is the first real-user-facing milestone of Phase 3; everything before it was internal scaffolding.
+>
+> This plan was the canonical reference for sub-phase 2 of Phase 3 (the Mastery Map). The diagnostic flow (sub-phase 1) was treated as a stable dependency — its five commits (`468dda6` → `43a8a0d`) shipped 2026-05-04 and were not touched here. Where this plan disagrees with prior phase plans (`docs/plans/phase-3-practice-surface.md`) it wins for the Mastery Map surface.
 
 The Mastery Map is the user's **home**. After the diagnostic, after every session, after sign-in to a returning account — they land on `/`. The route already has substantial scaffolding from a prior round (commit `d722017`, "feat(app): Mastery Map + standard drill flow"): the eleven-icon grid, the near-goal line, the primary CTA, the low-contrast triage adherence, and the supporting pure functions (`deriveNearGoal`, `recommendedNextSubType`, `triageRolling30d`) all exist. **Sub-phase 2's job is not to design and build the Map. It's to make the Map land cleanly under sub-phase 1's just-completed-diagnostic flow, address the empty-state race window that the workflow's async fire opens up, catch any drift introduced by sub-phase 1, and unblock the production deploy.**
 
