@@ -1,14 +1,18 @@
 "use client"
 
 // <MasteryMap> — the home screen's eleven-icon grid + near-goal line +
-// primary CTA + low-contrast triage adherence. Plan §6.3 / PRD §5.2.
+// primary CTA + low-contrast triage adherence. Plan §6.3 / PRD §5.2 /
+// docs/plans/phase3-mastery-map.md §3.
 //
 // Reads four promises drilled in from the server `(app)/page.tsx` and
 // consumes them via `React.use()`. Each promise's failure modes:
 //   - `masteryStatesPromise` — empty for users who finished the
-//     diagnostic but have no `mastery_state` rows yet (the diagnostic
-//     records to mastery_state via `masteryRecomputeWorkflow` so this
-//     case is short-lived).
+//     diagnostic but have no `mastery_state` rows yet (the
+//     post-diagnostic race window between endSession and the
+//     workflow's upserts). When empty, this component renders the
+//     <ComputingState> empty-state pane instead of eleven misleading
+//     outlined icons; the pane's polling effect drives router.refresh()
+//     until the workflow populates.
 //   - `userTargetsPromise` — both fields nullable. deriveNearGoal handles
 //     undefined date.
 //   - `triageRolling30dPromise` — small-sample threshold handled by
@@ -21,6 +25,7 @@ import { type SubTypeConfig, subTypes } from "@/config/sub-types"
 import type { TriageScore } from "@/server/triage/score"
 import type { MasteryLevel } from "@/server/mastery/compute"
 import type { SubTypeId } from "@/config/sub-types"
+import { ComputingState } from "@/components/mastery-map/computing-state"
 import { MasteryIcon } from "@/components/mastery-map/mastery-icon"
 import { NearGoalLine } from "@/components/mastery-map/near-goal-line"
 import { StartSessionButton } from "@/components/mastery-map/start-session-button"
@@ -49,6 +54,15 @@ function MasteryMap(props: MasteryMapProps) {
 	const nearGoal = React.use(props.nearGoalPromise)
 	const triage = React.use(props.triagePromise)
 	const recommendedId = React.use(props.recommendedSubTypePromise)
+
+	// Race-window branch: the (app) gate guarantees the user has a
+	// completed-non-abandoned diagnostic, so an empty states map means
+	// masteryRecomputeWorkflow hasn't finished upserting yet. Render the
+	// computing-state pane (with polling) instead of the misleading
+	// eleven-outlined-icons render.
+	if (states.size === 0) {
+		return <ComputingState />
+	}
 
 	const recommendedConfig = subTypes.find(function byId(s) {
 		return s.id === recommendedId
