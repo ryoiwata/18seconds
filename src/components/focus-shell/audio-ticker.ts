@@ -114,10 +114,42 @@ function unlockAudio(): void {
 	})
 }
 
-function emitEvent(kind: "urgency-loop-start" | "urgency-loop-stop", url?: string): void {
+function emitEvent(kind: "tick" | "urgency-loop-start" | "urgency-loop-stop", url?: string): void {
 	if (typeof window === "undefined") return
 	const detail = { kind, timestampMs: Date.now(), url }
 	window.dispatchEvent(new CustomEvent("audio-ticker", { detail }))
+}
+
+// Pre-target synth tick — restored in commit 2.5 of the focus-shell
+// post-overhaul-fixes round. Fires at integer seconds in the second
+// half of perQuestionTargetMs (e.g., seconds 10-17 of an 18s target).
+// The urgency-loop sample at second 18 is the new "you've hit target"
+// signal, replacing the synth dong from commit 6 of the prior round
+// — so these synth ticks have no companion synth dong; the handoff is
+// straight from the last tick into the looped sample.
+//
+// Peak gain stays at 0.12 (the pre-commit-2 value). v2's reasoning
+// for raising it ("the loop replaces the tick") no longer applies in
+// the v2.5 hybrid model.
+function playTick(): void {
+	if (audioCtx === undefined) return
+	if (audioCtx.state !== "running") return
+	const ctx = audioCtx
+	const result = errors.trySync(function play() {
+		const now = ctx.currentTime
+		const osc = ctx.createOscillator()
+		const gain = ctx.createGain()
+		osc.type = "sine"
+		osc.frequency.value = 880
+		gain.gain.setValueAtTime(0, now)
+		gain.gain.linearRampToValueAtTime(0.12, now + 0.005)
+		gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05)
+		osc.connect(gain).connect(ctx.destination)
+		osc.start(now)
+		osc.stop(now + 0.06)
+	})
+	if (result.error) return
+	emitEvent("tick")
 }
 
 function startUrgencyLoop(): void {
@@ -175,4 +207,4 @@ function stopUrgencyLoop(): void {
 	emitEvent("urgency-loop-stop")
 }
 
-export { pickSessionSound, startUrgencyLoop, stopUrgencyLoop, unlockAudio }
+export { pickSessionSound, playTick, startUrgencyLoop, stopUrgencyLoop, unlockAudio }

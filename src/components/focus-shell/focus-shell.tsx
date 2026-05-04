@@ -44,7 +44,7 @@
 import * as errors from "@superbuilders/errors"
 import { useRouter } from "next/navigation"
 import * as React from "react"
-import { startUrgencyLoop, stopUrgencyLoop, unlockAudio } from "@/components/focus-shell/audio-ticker"
+import { playTick, startUrgencyLoop, stopUrgencyLoop, unlockAudio } from "@/components/focus-shell/audio-ticker"
 import { Heartbeat } from "@/components/focus-shell/heartbeat"
 import { InterQuestionCard } from "@/components/focus-shell/inter-question-card"
 import { ItemSlot } from "@/components/focus-shell/item-slot"
@@ -222,20 +222,53 @@ function FocusShell(props: FocusShellProps) {
 		}
 	}, [])
 
-	// Audio: urgency-loop model (post-overhaul-fixes round, SPEC §6.12).
-	// At session start (first user interaction) the audio-ticker picks
-	// one MP3 from the bank manifest at random and decodes it. When
-	// elapsedQuestionMs first crosses perQuestionTargetMs, the chosen
-	// file starts looping. The loop stops on item advance via the
-	// cleanup-on-id-change effect below. Same file replays for every
-	// question in the same session.
+	// Audio: hybrid two-path model (post-overhaul-fixes round commit 2.5,
+	// SPEC §6.12). Two distinct sounds per question:
+	//   1. Pre-target synth ticks at integer seconds in the second half
+	//      of perQuestionTargetMs. For an 18s target: ticks at seconds
+	//      10, 11, 12, 13, 14, 15, 16, 17. 880Hz sine, ~50ms decay,
+	//      0.12 peak gain.
+	//   2. At second 18 (= perQuestionTargetMs), a randomly-picked MP3
+	//      from data/sounds/ starts looping. Loop continues until item
+	//      advance. The loop's first second of playback replaces the
+	//      synth dong from the prior round's commit 6.
 	//
+	// The audio-ticker module picks the MP3 ONCE per session at unlock
+	// time; the same file plays for every question that crosses target.
 	// Audio is gated on `timerPrefs.questionTimerVisible` — if the
-	// per-question timer bar is hidden, the audio is off too. The
-	// reducer's `urgencyLoopStartedForCurrentQuestion` flag prevents
-	// double-starts within the same question (the start condition is
-	// idempotent across re-renders past target).
+	// per-question timer bar is hidden, both the ticks AND the loop are
+	// silent. The reducer's `urgencyLoopStartedForCurrentQuestion` flag
+	// prevents double-starts within a question; the synth ticks use a
+	// useRef-tracked previous-integer-second value (no reducer state)
+	// to prevent double-fires within a render batch.
 	const currentItemId = state.currentItem.id
+	const prevSecondRef = React.useRef<number>(-1)
+	React.useEffect(
+		function resetTickTrackingOnAdvance() {
+			// Reset the cross-second-detection ref on item swap so the
+			// next item's tick window starts fresh.
+			void currentItemId
+			prevSecondRef.current = -1
+		},
+		[currentItemId]
+	)
+	React.useEffect(
+		function maybePlayPreTargetTicks() {
+			if (!state.timerPrefs.questionTimerVisible) return
+			const secondsElapsed = Math.floor(state.elapsedQuestionMs / 1000)
+			if (secondsElapsed === prevSecondRef.current) return
+			const targetSec = props.perQuestionTargetMs / 1000
+			const halfSec = targetSec / 2
+			const start = prevSecondRef.current + 1
+			for (let s = start; s <= secondsElapsed; s += 1) {
+				if (s > halfSec && s < targetSec) {
+					playTick()
+				}
+			}
+			prevSecondRef.current = secondsElapsed
+		},
+		[state.elapsedQuestionMs, state.timerPrefs.questionTimerVisible, props.perQuestionTargetMs]
+	)
 	React.useEffect(
 		function maybeStartUrgencyLoop() {
 			if (!state.timerPrefs.questionTimerVisible) return
