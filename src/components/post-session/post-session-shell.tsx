@@ -2,27 +2,31 @@
 
 // <PostSessionShell> — minimal post-session shell.
 //
-// Plan §6.2. Phase 3's post-session is intentionally thin: target
-// percentile + target date capture, plus a one-line overtime note IFF
-// `practice_sessions.diagnostic_overtime_note_shown_at_ms` is set
-// (i.e., the diagnostic crossed the 15-minute mark). The full Phase 5
-// post-session composition (wrong-items list, accuracy/latency summary,
-// strategy surfacing) lives outside this shell and ships later.
+// Plan: docs/plans/phase3-diagnostic-flow.md §6. Phase 3's post-session
+// is intentionally thin: target percentile + target date capture, plus
+// a derived neutral pacing line surfaced when the user took longer than
+// 15 minutes. The pacing line is informational, not a judgment — it
+// reports the user's diagnostic duration alongside the real-CCAT
+// reference (15 minutes for 50 questions) so the user can calibrate
+// without being primed by a triage frame the diagnostic isn't training.
+//
+// The full Phase 5 post-session composition (wrong-items list,
+// accuracy/latency summary, strategy surfacing) lives outside this
+// shell and ships later.
 
 import type * as React from "react"
 import { OnboardingTargets } from "@/components/post-session/onboarding-targets"
 
 interface PostSessionShellProps {
-	overtimeNoteShown: boolean
+	pacingMinutes?: number
 }
 
 function PostSessionShell(props: PostSessionShellProps) {
-	let overtimeLine: React.ReactNode = null
-	if (props.overtimeNoteShown) {
-		overtimeLine = (
+	let pacingLine: React.ReactNode = null
+	if (props.pacingMinutes !== undefined) {
+		pacingLine = (
 			<p className="text-muted-foreground text-sm">
-				You went past the 15-minute real-test window. Calibration is unaffected;
-				keep the result in mind when you sit the actual test.
+				Your diagnostic took {props.pacingMinutes} minutes. The real CCAT is 15 minutes for 50 questions.
 			</p>
 		)
 	}
@@ -36,7 +40,7 @@ function PostSessionShell(props: PostSessionShellProps) {
 				</p>
 			</header>
 			<OnboardingTargets />
-			{overtimeLine}
+			{pacingLine}
 		</main>
 	)
 }
