@@ -298,9 +298,9 @@ Indexes: `email_idx` (unique).
 
 Composite PK: `(provider, provider_account_id)`. Index on `user_id`.
 
-#### `src/db/schemas/auth/auth_sessions.ts` — table `auth_sessions`
+#### `src/db/schemas/auth/sessions.ts` — table `sessions` (Drizzle export `authSessions`)
 
-Renamed from Auth.js's default `sessions` to avoid clashing with `practice/sessions`.
+**Naming reality (sub-phase 4 close-out, 2026-05-04).** This SPEC originally specified the file path as `src/db/schemas/auth/auth_sessions.ts` and the PG table name as `auth_sessions` — the planned rename to disambiguate from `practice_sessions` never executed. The actual shipped state is: file `src/db/schemas/auth/sessions.ts`, PG table name `"sessions"` (Auth.js's default), Drizzle export `authSessions`. The practice-side table name `practice_sessions` already disambiguates without the rename. Future readers grepping for the table by either name should find this note via `auth_sessions` or `authSessions` text search.
 
 | column | type | constraint |
 |---|---|---|
@@ -451,7 +451,7 @@ In shadow mode (the first 30 days after the workflow lands), `enforced` is alway
 
 ### 3.4 Practice tables
 
-#### `src/db/schemas/practice/sessions.ts` — table `practice_sessions`
+#### `src/db/schemas/practice/practice-sessions.ts` — table `practice_sessions`
 
 | column | type | constraint |
 |---|---|---|
@@ -1026,11 +1026,13 @@ The query plan (verified via EXPLAIN ANALYZE) uses `attempts_session_id_idx`; co
 
 The shell mounts a `<Heartbeat sessionId={sessionId} />` client component that:
 
-- Fires `navigator.sendBeacon('/api/sessions/' + sessionId + '/heartbeat', '')` every 30 seconds via `setInterval`.
-- Fires the same beacon on `pagehide` (clean tab close).
-- Uses `sendBeacon`, not `fetch`, because `setInterval` callbacks fired via `fetch` get throttled when the tab is backgrounded (which would falsely abandon a session when the user briefly switches tabs).
+- Fires `navigator.sendBeacon('/api/sessions/' + sessionId + '/heartbeat', new Blob([""], { type: "text/plain" }))` every 30 seconds via **recursive `setTimeout`** (not `setInterval`, per the project's no-setInterval convention; recursive `setTimeout` cleans up on unmount via `clearTimeout` rather than leaving a free-running interval handle).
+- Registers a `pagehide` event listener via `AbortController` that fires the same beacon on clean tab close. Cleanup on unmount calls `controller.abort()` to detach the listener.
+- Uses `sendBeacon`, not `fetch`, because the browser deprioritizes `fetch` calls fired from background tabs and may drop them on tab close. `sendBeacon` is the standard primitive for "fire-and-forget POSTs that must survive page unload."
 
-The route handler at `/api/sessions/[sessionId]/heartbeat` updates `last_heartbeat_ms = Date.now()` and returns `204`. The abandon-sweep cron (§7.12) finalizes sessions with stale heartbeats.
+The route handler at `/api/sessions/[sessionId]/heartbeat` updates `last_heartbeat_ms` to server-side `(extract(epoch from now()) * 1000)::bigint` and returns `204`. The route's WHERE clause additionally scopes by the cookie owner's user_id via an inline subquery against the auth-sessions table — see §7.7 for the Shape A contract. The abandon-sweep cron (§7.12) finalizes sessions whose `last_heartbeat_ms` falls past `ABANDON_THRESHOLD_MS = 5 * 60_000`.
+
+**Tab-backgrounding behavior — intended outcome.** Chrome's `IntensiveWakeUpThrottling` policy caps backgrounded `setTimeout` callbacks to roughly once per minute after the tab has been hidden for ~5 minutes. Once throttling kicks in, the heartbeat cadence drops from one beacon per 30 seconds to one beacon per ~60 seconds. With `HEARTBEAT_GRACE_MS = 30_000` (the cron's added grace) and `ABANDON_THRESHOLD_MS = 5 * 60_000` (the cron's cutoff), a backgrounded tab whose heartbeats space out to 60+ seconds will eventually have its `last_heartbeat_ms` cross the 5-minute abandon threshold; the cron sweeps the row and finalizes the session as `'abandoned'`. **This is the intended outcome.** A user who backgrounds their tab during a timed drill or diagnostic IS abandoning the session in the sense that matters — they're no longer in the focus shell, the timed contract no longer holds, and resuming midway would corrupt the latency signal the mastery model depends on. The browser-level throttling is upstream of any choice this codebase makes; rather than fighting it (e.g., with a service worker or `Page Visibility API` pause-instead-of-abandon logic), the design lets the throttling produce the correct outcome via the existing cron path. A user who briefly tab-switches and returns within the 5-minute window resumes cleanly via `startSession`'s fresh-resume path; a user who leaves the tab for 5+ minutes gets their session finalized.
 
 ### 6.12 Audio cues
 
@@ -1200,6 +1202,42 @@ A hot-route query whose EXPLAIN ANALYZE shows a Sequential Scan on the dev DB is
 
 The sub-phase 3 commit message for the empty-bank-pane query (commit `b5510af`) is the canonical example of how to document the scale-dependent plan choice: capture the dev EXPLAIN ANALYZE in the commit, note that production will use the index, and move on. If a future planner-stability concern surfaces, the commit message is the audit trail.
 
+#### 6.14.14 Uniform response code for ownership-opacity
+
+Routes that scope a write or read to a resource owned by a specific user — e.g., the heartbeat route at `/api/sessions/[sessionId]/heartbeat` (§7.7) — should return a **uniform response code** across all four canonical request shapes (correct ownership, missing cookie, expired cookie, owner mismatch) rather than 4xx codes that leak which case fired. DB-state assertion is the verification anchor; response code is uniform.
+
+The leak this closes: an unauthenticated probe enumerating arbitrary UUIDv7 ids by issuing requests and observing the response. With differing codes (401 missing-cookie, 403 owner-mismatch, 404 missing-row), the attacker learns which ids correspond to real-and-owned vs. real-and-not-theirs vs. nonexistent — a side channel that grows worse as more ownership-scoped routes ship. Returning uniform 204 (or 200 for read endpoints) makes the response code carry zero information about ownership; the only authoritative signal is the DB row's actual state, which the attacker cannot read.
+
+Verification anchors on DB read-back, not response code. See `scripts/dev/smoke/heartbeat-route-ownership.ts` (sub-phase 4 commit 2, hash `78eb047`) for the canonical four-scenario shape: happy, cross-user, anonymous, garbage-id — all assert HTTP/204 (exact match) AND the appropriate DB-side outcome (advance for happy, exact-equality unchanged for negatives).
+
+This pattern generalizes. Future ownership-scoped routes (e.g., a future "save partial response" route, a future "favorite an item" route) should default to uniform response codes with DB-state as the signal. Diverge only with a stated reason — debugging convenience is not enough.
+
+#### 6.14.15 Hermetic smoke with per-run isolation
+
+The pattern from `scripts/dev/smoke/heartbeat-route-ownership.ts` (sub-phase 4 commit 2, hash `78eb047`) — **future smokes that exercise auth-scoped routes should imitate this shape**. Three confirmed runs back-to-back at 222ms / 207ms / 292ms wall-clock, all green; full state isolation between runs.
+
+Five elements of the pattern, in order:
+
+1. **Per-run identifier suffixes.** User emails and session tokens are suffixed with `Date.now()` at smoke start. Two concurrent smoke runs of the same script never collide; a smoke run that crashes mid-execution leaves namespaced rows that future runs ignore.
+
+2. **Setup before any assertion.** Insert all needed users + auth-sessions + practice-sessions rows up-front; capture the BEFORE-state snapshot (e.g., `last_heartbeat_ms` baseline) ONCE; then run scenarios.
+
+3. **Negatives-first ordering, happy last.** When a happy-path scenario mutates the row's state, all subsequent BEFORE-comparisons would observe the post-mutation value. Run negatives first against a single fixed BEFORE; run the happy case last so its advance-assertion observes the original BEFORE.
+
+4. **Teardown of session-scoped rows; users left in place.** The smoke's cleanup deletes rows it inserted whose lifecycle is the smoke's (auth-sessions, practice-sessions). Users are left in place — one user row per smoke run is rounding-error storage and avoids the FK-cascade complexity of deleting users (which would cascade into accounts, mastery_state, etc.). A periodic dev-DB cleanup script can sweep namespaced orphan users if accumulation matters.
+
+5. **Sub-second wall-clock.** No artificial waits, no `setTimeout`, no Playwright. Each scenario is a `fetch` + a DB read; serial execution stays under 300ms even with three sequential scenarios. If a smoke needs longer than ~1s of wall-clock, ask whether it actually needs to be a smoke vs. a `bun test`.
+
+This pattern applies to any future smoke that exercises a route at the network boundary against a real DB. The mastery-recompute side-effect smoke (sub-phase 1 commit 5) and the empty-state-pane smoke (sub-phase 2 commit 3) follow the same shape but with longer wall-clocks (the ~30s polling budget for empty-state).
+
+#### 6.14.16 Auth-shape audit before pinning a perf-justified design
+
+When a plan's design choice rests on a perf rationale ("avoid the auth_sessions DB read", "use the JWT to read user_id without DB access"), audit the actual stack-config — session strategy, cookie shape, adapter — before pinning the design. The plan-prompt's perf rationale may not survive contact with what's actually configured.
+
+Sub-phase 4's load-bearing example: the original plan-prompt suggested "user_id read from the JWT, no auth_sessions DB hit, preserves the perf trade-off the carve-out was designed for." The actual config (`src/auth.ts:14`, `session: { strategy: "database" }`) makes JWT-readable user_id structurally impossible — the cookie is a session token requiring a DB lookup against `auth_sessions` to resolve to user_id. Once that fact landed, the design choice flipped: the perf rationale for the proxy carve-out (avoid the auth_sessions read) was moot under any ownership-check shape; the remaining axis became round-trip count, which led to Shape A (single-query inline subquery) over Shape B (call `auth()` then UPDATE).
+
+The audit takes one grep + one file read. Cost is negligible compared to the cost of pinning a design that turns out to be impossible. Worth a habit: any time a plan invokes "perf trade-off" as a reason, the perf rationale gets verified against actual config before commit-time.
+
 ---
 
 ## 7. Server actions, route handlers, and workflows
@@ -1315,7 +1353,39 @@ Updates `users.target_percentile` and `users.target_date_ms`. `undefined` for ei
 
 ### 7.7 `recordHeartbeat` — `src/app/api/sessions/[sessionId]/heartbeat/route.ts`
 
-`POST` handler. Reads `auth()`, verifies the session belongs to the user, updates `last_heartbeat_ms = Date.now()`, returns `204`. Idempotent.
+`POST` handler. Verifies the session belongs to the cookied user, updates `last_heartbeat_ms`, returns `204`. Idempotent.
+
+**Shape A — inline-subquery ownership scope (sub-phase 4 commit 1, hash `9ce8325`).** The route does NOT call `auth()` directly; the proxy carve-out (`api/sessions/[^/]+/heartbeat` in `src/proxy.ts`'s `config.matcher`) skips the proxy's auth resolution layer, AND the route handler reads the session-token cookie inline and scopes the UPDATE via a subquery that resolves the cookie owner's user_id from the auth-sessions table:
+
+```sql
+UPDATE practice_sessions
+SET last_heartbeat_ms = (extract(epoch from now()) * 1000)::bigint
+WHERE id = $sessionId
+  AND ended_at_ms IS NULL
+  AND user_id = (
+      SELECT user_id FROM sessions
+      WHERE session_token = $cookieValue
+        AND expires_ms > (extract(epoch from now()) * 1000)::bigint
+  )
+RETURNING id
+```
+
+The `expires_ms` check sits inside the subquery's WHERE clause so an expired token matches zero rows. One PG round-trip; two indexed lookups (auth-sessions PK on `session_token`, practice_sessions PK on `id`).
+
+**Why one round-trip beats `auth()` + UPDATE (Shape B, rejected).** Calling `auth()` from inside the handler would resolve the user_id via NextAuth's standard adapter (one DB read against the auth-sessions table) and then run the UPDATE as a second query (two round-trips total). Shape A is one round-trip — same DB cost (one auth-sessions read + one practice-sessions UPDATE), better latency. The database session strategy means the auth-sessions read is unavoidable regardless of shape; the round-trip count is the only axis on which the shapes differ.
+
+**Cookie name — environment-aware.** Auth.js v5 names the session-token cookie based on `useSecureCookies` (HTTPS): `__Secure-authjs.session-token` in production, `authjs.session-token` in dev/HTTP. The route reads both and prefers the secure-prefix one when both are present. Hardcoding the dev-only name would silently drop ownership enforcement in production.
+
+**Uniform-204 contract (load-bearing).** All four request shapes return HTTP/204 unconditionally:
+
+| Request shape | DB-state outcome |
+|---|---|
+| Correct cookie + owned sessionId (happy) | `last_heartbeat_ms` advances |
+| Correct cookie + different user's sessionId (cross-user) | `last_heartbeat_ms` unchanged |
+| No cookie (anonymous) | `last_heartbeat_ms` unchanged |
+| Correct cookie + nonexistent sessionId (garbage) | no row written |
+
+**DB-state is the only signal.** Differing response codes (e.g., 401 for missing cookie, 403 for owner-mismatch, 404 for missing row) would let an unauthenticated probe enumerate which sessionIds exist by observing the response code. Returning uniform 204 closes that side channel — an attacker probing arbitrary UUIDv7 sessionIds gets the same 204 whether the id is real, owned, or garbage. Verification of the contract anchors on DB read-back (`SELECT last_heartbeat_ms FROM practice_sessions WHERE id = $sid`), not on response shape; see `scripts/dev/smoke/heartbeat-route-ownership.ts` (sub-phase 4 commit 2, hash `78eb047`) for the canonical four-scenario smoke and §6.14.14 for the generalizable pattern.
 
 ### 7.8 `persistTimerPrefs` — `src/app/(app)/actions.ts`
 
@@ -1963,7 +2033,9 @@ Six phases over a 2-week window. Each phase lists the files to create or modify 
 - Hand-seed 55 real items (5 per sub-type × 11 v1 sub-types) via the form. Then OCR-import additional items from CCAT practice-test screenshots via the four-pass pipeline at `scripts/import-questions.ts` + `scripts/generate-explanations.ts`. Validates the (single-variant) body discriminator end-to-end.
 - The opaque-option-id schema (§3.3.2) and the structured-explanation contract (§3.3.3) both shipped within Phase 2, in lockstep with the OCR pipeline. See `docs/plans/ocr-import-screenshots.md` and `docs/plans/opaque-option-ids-and-pipeline-split.md` for the design rationale and the migration history.
 
-### Phase 3 — Practice surface (week 1, days 5–7)
+### Phase 3 — Practice surface (week 1, days 5–7) — **COMPLETE 2026-05-04**
+
+Sub-phases 1 (diagnostic flow), 2 (Mastery Map + post-diagnostic empty-state pane), 3 (drill mode + sign-out), and 4 (heartbeats + cron-runner wiring + ownership-scope security fix) all shipped. The user-facing happy path runs end-to-end against real items. Production-deploy coupling is now unblocked; deploy-and-dogfood is the next move before Phase 5 (full-length tests + spaced-repetition + post-session review with click-to-highlight).
 
 - `src/components/focus-shell/{focus-shell,session-timer-bar,pace-track,question-timer-bar,triage-prompt,inter-question-card,heartbeat,shell-reducer}.{tsx,ts}` (NEW)
 - `src/server/sessions/{queries,start,submit,heartbeat,end}.ts` (NEW)

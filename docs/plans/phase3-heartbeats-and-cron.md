@@ -1,6 +1,15 @@
 # Plan — Phase 3, sub-phase 4: heartbeats + cron-runner wiring
 
-> **Status: planning, approved, not yet implemented.** This plan is the canonical reference for sub-phase 4 of Phase 3 (heartbeats + abandon-sweep cron-runner wiring). It closes Phase 3 — after this round, the user-facing happy path AND the background-state-management infrastructure are both complete, and a "Phase 3 complete" milestone deploy is the next move.
+> **Status: shipped 2026-05-04.** The four-commit sequence below landed on `main` cleanly:
+>
+>   - Commit 1 (plan) — `6016275` — `docs(phase3): add heartbeats-and-cron sub-phase 4 plan`
+>   - Commit 2 (security fix) — `9ce8325` — `fix(heartbeat): scope route UPDATE by cookie user_id (Shape A — inline subquery)`
+>   - Commit 3 (smoke) — `78eb047` — `test(heartbeat): route-level live-fire smoke for ownership-scope contract`
+>   - Commit 4 (close-out) — *this commit* — `docs: close phase3-heartbeats-and-cron plan; SPEC §6.11 + §7.7 + §6.14 reconciliations; Phase 3 close`
+>
+> **Phase 3 is complete end-to-end.** Sub-phases 1 + 2 + 3 + 4 shipped the user-facing happy path AND the background-state-management infrastructure. Production-deploy coupling is unblocked — deploy-and-dogfood is the next move before Phase 5 (full-length tests + spaced-repetition + post-session review with click-to-highlight) starts.
+>
+> This plan was the canonical reference for sub-phase 4. The audit during plan-writing surfaced that all three deliverables originally scoped (heartbeat client, route handler, vercel.json cron) already existed on main; the load-bearing finding was a security gap on the existing route (no ownership check, sessionId-trusting). Commit 2 closed that gap via Shape A (inline subquery). Commit 3 formalized commit 2's manual verification as a four-scenario hermetic smoke that locks in the uniform-204 ownership-opacity contract. Commit 4 (this one) reconciled SPEC §6.11 and §7.7 to match shipped reality and added three new SPEC §6.14 implementation notes (uniform-response-code-for-ownership-opacity, hermetic-smoke-with-per-run-isolation, auth-shape-audit-before-pinning-a-perf-justified-design).
 
 The audit-and-polish framing carries forward from sub-phases 2 and 3. **All three deliverables the prompt names already exist in the codebase**:
 
