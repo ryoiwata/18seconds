@@ -444,23 +444,27 @@ function FocusShell(props: FocusShellProps) {
 			className={cn("flex min-h-dvh w-full flex-col px-6 py-8")}
 		>
 			<main className="mx-auto flex w-full max-w-3xl flex-1 flex-col">
-				{/* chrome row — chronometer top-right, then progress bar,
-				    then "Question N / 50" + cosmetic last-question
-				    indicator + thin divider. */}
+				{/* chrome row — chronometer top-right, then progression
+				    bar, then "Question N / M" label, then session
+				    timer, then per-question timer stack, then divider.
+				    The question label sits between the segmented count
+				    indicator (progression) and the timed-pace indicator
+				    (session) so the count signal reads first, paired
+				    with its number. */}
 				{chronometerNode !== null ? (
 					<div className="mb-4 flex justify-end">{chronometerNode}</div>
 				) : null}
 				{progressionBarNode}
-				{sessionBarNode !== null ? <div className="mt-2">{sessionBarNode}</div> : null}
-				{questionTimerNode !== null ? (
-					<div className="mt-2">{questionTimerNode}</div>
-				) : null}
 				<div className="mt-2 text-foreground/70 text-sm">
 					Question <strong className="text-foreground">{questionNumber}</strong>
 					{" / "}
 					{props.targetQuestionCount}
 					{lastQuestionSuffix}
 				</div>
+				{sessionBarNode !== null ? <div className="mt-2">{sessionBarNode}</div> : null}
+				{questionTimerNode !== null ? (
+					<div className="mt-2">{questionTimerNode}</div>
+				) : null}
 				<hr className="mt-3 border-foreground/10" />
 
 				{/* content area — question text + options inside <ItemSlot>,

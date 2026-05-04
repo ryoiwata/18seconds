@@ -924,9 +924,9 @@ Vertical flex column with two regions — a chrome row at the top and a content 
 chrome row:
     chronometer (top-right, MM:SS countdown)
     <QuestionProgressionBar>      // top — always blue
-    <SessionTimerBar>             // middle, with "Overall time" label; pace-keyed blue/red
-    <QuestionTimerBarStack>       // bottom — primary + overflow per-question bars
     "Question N / M" label (with optional "— last question" suffix)
+    <SessionTimerBar>             // with "Overall time" label; pace-keyed blue/red
+    <QuestionTimerBarStack>       // primary + overflow per-question bars
     horizontal divider
 content region:
     <ItemPrompt> (question body + option buttons)
