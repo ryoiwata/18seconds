@@ -3,8 +3,18 @@
 // <SessionTimerBar> — the session-progress bar in the chrome row of
 // the FocusShell. Commit 4 of the focus-shell UI overhaul restructured
 // this from a single colored div to a two-element track + fill: a
-// gray-200 track with a red-600 fill that grows from the left over
-// the session duration. Below the bar, an "Overall time" label.
+// gray-200 track with a fill that grows from the left over the
+// session duration. Below the bar, an "Overall time" label.
+//
+// Pace-deficit color (post-overhaul-fixes follow-up, SPEC §6.6):
+// fill color is BLUE (`bg-blue-600`) when on/ahead of pace, RED
+// (`bg-red-600`) when behind pace. "Behind pace" is computed in
+// <FocusShell> and passed as the `behindPace` prop; this component
+// is a pure presenter and does no pacing math. The color signal
+// previously lived on <QuestionProgressionBar>; moving it here keeps
+// the progression bar focused on "K of N" and lets the session bar
+// carry both the absolute-elapsed signal AND the pace-deficit signal
+// on the same fill.
 //
 // The MM:SS chronometer at the page's top-right is the canonical
 // session time display (rendered by <FocusShell>); this bar is the
@@ -21,7 +31,10 @@
 //
 // `key={props.sessionId}` on the inner fill so a remount restarts the
 // animation if the session changes. Within a single session the key
-// is stable and the animation runs to completion uninterrupted.
+// is stable and the animation runs to completion uninterrupted —
+// `behindPace` toggling at runtime swaps the className without a
+// keyed remount, so the scaleX animation continues smoothly through
+// the color change.
 
 import { cn } from "@/lib/utils"
 import { DURATION_CLASS_BY_MS } from "@/components/focus-shell/timer-bar"
@@ -29,6 +42,7 @@ import { DURATION_CLASS_BY_MS } from "@/components/focus-shell/timer-bar"
 interface SessionTimerBarProps {
 	sessionId: string
 	durationMs: number
+	behindPace: boolean
 }
 
 function SessionTimerBar(props: SessionTimerBarProps) {
@@ -39,9 +53,19 @@ function SessionTimerBar(props: SessionTimerBarProps) {
 	// length; the fallback exists only for forward-compatibility with
 	// future durations not yet enumerated.
 	const durationClass = DURATION_CLASS_BY_MS.get(props.durationMs)
+	let fillColor: string
+	if (props.behindPace) {
+		fillColor = "bg-red-600"
+	} else {
+		fillColor = "bg-blue-600"
+	}
 	if (durationClass === undefined) {
 		return (
-			<div className="flex w-full flex-col gap-1" data-testid="session-timer-bar">
+			<div
+				className="flex w-full flex-col gap-1"
+				data-testid="session-timer-bar"
+				data-behind-pace={props.behindPace ? "true" : "false"}
+			>
 				<div
 					className="relative h-1 w-full overflow-hidden rounded-sm bg-gray-200"
 					data-testid="session-timer-track"
@@ -49,7 +73,10 @@ function SessionTimerBar(props: SessionTimerBarProps) {
 					<div
 						key={props.sessionId}
 						data-testid="session-timer-fill"
-						className="absolute inset-0 origin-left animate-fill-bar bg-red-600 [animation-duration:60000ms]"
+						className={cn(
+							"absolute inset-0 origin-left animate-fill-bar [animation-duration:60000ms]",
+							fillColor
+						)}
 						aria-hidden="true"
 					/>
 				</div>
@@ -60,7 +87,11 @@ function SessionTimerBar(props: SessionTimerBarProps) {
 		)
 	}
 	return (
-		<div className="flex w-full flex-col gap-1" data-testid="session-timer-bar">
+		<div
+			className="flex w-full flex-col gap-1"
+			data-testid="session-timer-bar"
+			data-behind-pace={props.behindPace ? "true" : "false"}
+		>
 			<div
 				className="relative h-1 w-full overflow-hidden rounded-sm bg-gray-200"
 				data-testid="session-timer-track"
@@ -69,7 +100,8 @@ function SessionTimerBar(props: SessionTimerBarProps) {
 					key={props.sessionId}
 					data-testid="session-timer-fill"
 					className={cn(
-						"absolute inset-0 origin-left animate-fill-bar bg-red-600",
+						"absolute inset-0 origin-left animate-fill-bar",
+						fillColor,
 						durationClass
 					)}
 					aria-hidden="true"

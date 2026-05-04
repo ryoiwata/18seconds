@@ -923,9 +923,9 @@ Vertical flex column with two regions — a chrome row at the top and a content 
 ```
 chrome row:
     chronometer (top-right, MM:SS countdown)
-    <QuestionProgressionBar>      // top of three bars
-    <QuestionTimerBar>            // middle, when timerPrefs.questionTimerVisible
-    <SessionTimerBar>             // bottom, with "Overall time" label
+    <QuestionProgressionBar>      // top — always blue
+    <SessionTimerBar>             // middle, with "Overall time" label; pace-keyed blue/red
+    <QuestionTimerBarStack>       // bottom — primary + overflow per-question bars
     "Question N / M" label (with optional "— last question" suffix)
     horizontal divider
 content region:
@@ -957,8 +957,8 @@ content region:
 
 | element | shape | Fill direction | default visibility | toggleable mid-session? |
 |---|---|---|---|---|
-| `<SessionTimerBar>` | horizontal bar in the chrome row, with the numeric MM:SS readout (e.g. `8:42`) rendered as the chronometer at the page's top-right | fill grows from left edge as time elapses; red | ON for drill, full-length, simulation, review. **HIDDEN** for diagnostic. | yes; toggle persists per-user via `users.timer_prefs_json`. Toggling the session timer hides/shows the chronometer in lockstep. |
-| `<QuestionProgressionBar>` | horizontal bar of N equal-width segments in the chrome row, one segment per question target. Renamed from `<PaceTrack>` in the focus-shell overhaul (commit 3). | leftmost K segments filled solid; remaining segments stay neutral gray. The fill color flips between blue and red based on session pace: BLUE when on/ahead of pace, RED when behind. "Behind pace" is `elapsedSessionMs / sessionDurationMs > currentQuestionIndex / targetQuestionCount` (strict greater-than; equal-ratios is on-pace). The flip is all-segments-at-once, not segment-by-segment. Diagnostic sessions (`sessionDurationMs === null`) hold blue regardless. | always visible — the segments give a "you're on K of N" hint independent of any toggle. | not toggleable (the bar is unconditional). |
+| `<SessionTimerBar>` | horizontal bar in the chrome row, with the numeric MM:SS readout (e.g. `8:42`) rendered as the chronometer at the page's top-right | fill grows from left edge as time elapses. Color is pace-keyed: BLUE (`bg-blue-600`) when on/ahead of pace, RED (`bg-red-600`) when behind. "Behind pace" is `elapsedSessionMs / sessionDurationMs > currentQuestionIndex / targetQuestionCount` (strict greater-than; equal-ratios is on-pace). The color signal lives on this bar — both the absolute-elapsed-time signal and the pace-deficit signal share the single fill. Worked examples: Q2/50 at 14/15 min → behind (red); Q49/50 at 2/15 min → ahead (blue). | ON for drill, full-length, simulation, review. **HIDDEN** for diagnostic. | yes; toggle persists per-user via `users.timer_prefs_json`. Toggling the session timer hides/shows the chronometer in lockstep. |
+| `<QuestionProgressionBar>` | horizontal bar of N equal-width segments in the chrome row, one segment per question target. Renamed from `<PaceTrack>` in the focus-shell overhaul (commit 3). | leftmost K segments always filled solid blue (`bg-blue-600`); remaining segments stay neutral gray. The bar is purely a "where you are in the question count" indicator — pace-deficit color was tried here briefly in the post-overhaul-fixes round but moved to `<SessionTimerBar>` (mixing question-position and pace signals into the same bar was visually noisy). | always visible — the segments give a "you're on K of N" hint independent of any toggle. | not toggleable (the bar is unconditional). |
 | `<QuestionTimerBarPrimary>` | top of two stacked per-question bars in the chrome row. Covers `[0, perQuestionTargetMs)`. Two stacked fill layers (blue underneath, red on top) sharing the gray track. | fill ratio = `min(elapsedQuestionMs / perQuestionTargetMs, 1.0)`. Color is **discretely keyed** to elapsed time: BLUE for `[0, perQuestionTargetMs / 2)`, RED for `[perQuestionTargetMs / 2, perQuestionTargetMs]`. The flip is a discrete jump at half-target — the entire current fill turns red, not a gradient. Capped at 100% red past target via `animation-fill-mode: forwards`. | tied to `timerPrefs.questionTimerVisible` (ON by default per the polish-plan default flip). | yes |
 | `<QuestionTimerBarOverflow>` | bottom of the two stacked per-question bars in the chrome row, sits directly below the primary bar. Single red fill on a gray track. | empty (`scaleX(0)`) for `elapsedQuestionMs < perQuestionTargetMs`. Fills 0 → 100% red over `[perQuestionTargetMs, 2 × perQuestionTargetMs)`. Caps at 100% red beyond. The fill is held at scaleX(0) during the delay window via `animation-fill-mode: both` (NOT `forwards` — see §6.14). | tied to `timerPrefs.questionTimerVisible` (renders as a sibling of the primary bar). | yes (lockstep with the primary bar) |
 
@@ -966,7 +966,7 @@ The two per-question bars are wrapped by a shared `<QuestionTimerBarStack>` pare
 
 `timerPrefs` is persisted per user. After every toggle, a server action writes `users.timer_prefs_json`. The server action does **not** call `revalidatePath` — this is a deliberate exception to the standard mutation pattern (§7.8).
 
-**Two reds in the chrome row, intentionally.** When a drill user is behind pace, both the session timer bar and the progression bar render in `bg-red-600` simultaneously. They share the token but signal different things — the session bar's red is *absolute time elapsed*, the progression bar's red is *pace deficit relative to questions completed*. This is intentional, not visual confusion: the doubled signal reinforces "you are running out of time" when both axes are stressed. The two indicators decouple — fast answering on early questions can clear the progression bar's red while the session bar continues filling.
+**Bar color allocation.** The progression bar is always blue — it's a question-count indicator with no time semantics. The session bar carries both the elapsed-time signal (the fill ratio) AND the pace-deficit signal (the fill color). An earlier post-overhaul-fixes commit put the pace-deficit color on the progression bar in addition to the session bar's static red; the doubled signal was visually noisy and the progression bar's color was distracting from its "K of N" job, so the color was consolidated onto the session bar in a follow-up.
 
 ### 6.7 Triage prompt — persistent, never auto-submits
 
@@ -1041,7 +1041,9 @@ Five learned-the-hard-way items from the focus-shell post-overhaul-fixes round (
 
 #### 6.14.1 Q1 pace-deficit semantics
 
-`<QuestionProgressionBar>`'s `behindPace` prop is computed as `elapsedSessionMs / sessionDurationMs > currentQuestionIndex / targetQuestionCount` with a 0-based `currentQuestionIndex`. Consequence: on Q1 of any drill, `currentQuestionIndex = 0` and the questions-ratio is `0 / N = 0`. ANY elapsed time then produces `time-ratio > 0`, which is `> 0`, which flips behindPace to true. **The bar starts red the moment the timer begins ticking on Q1.** This is the intentional behavior; the worked examples in the plan (Q2 of 50 at t=10/15min, Q49 of 50 at t=13/15min) both rely on this index-based ratio. If a future contributor is tempted to "fix" the Q1-starts-red behavior by switching to `(currentQuestionIndex + 1) / targetQuestionCount`, that would invert the semantics for every question — Q49 of 50 at the late-session edge would suddenly read as behind. Don't.
+The `<SessionTimerBar>`'s `behindPace` prop is computed as `elapsedSessionMs / sessionDurationMs > currentQuestionIndex / targetQuestionCount` with a 0-based `currentQuestionIndex`. Consequence: on Q1 of any drill, `currentQuestionIndex = 0` and the questions-ratio is `0 / N = 0`. ANY elapsed time then produces `time-ratio > 0`, which is `> 0`, which flips behindPace to true. **The session bar starts red the moment the timer begins ticking on Q1.** This is the intentional behavior; the worked examples (Q2 of 50 at t=10/15 min, Q49 of 50 at t=13/15 min) both rely on this index-based ratio. If a future contributor is tempted to "fix" the Q1-starts-red behavior by switching to `(currentQuestionIndex + 1) / targetQuestionCount`, that would invert the semantics for every question — Q49 of 50 at the late-session edge would suddenly read as behind. Don't.
+
+(Historical note: the pace-deficit color initially lived on `<QuestionProgressionBar>` for a single commit. It moved to `<SessionTimerBar>` in a follow-up because the doubled signal was visually noisy and pace mixing into the segment bar muddled its "K of N" purpose.)
 
 #### 6.14.2 Tailwind v4 footguns
 

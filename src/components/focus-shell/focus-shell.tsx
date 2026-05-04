@@ -347,6 +347,24 @@ function FocusShell(props: FocusShellProps) {
 		props.sessionType === "diagnostic" &&
 		state.elapsedSessionMs >= sessionDurationMs
 
+	// Pace-deficit color (post-overhaul-fixes follow-up, SPEC §6.6):
+	// the session-timer bar's fill is BLUE when on/ahead of pace, RED
+	// when behind. "Behind pace" is computed here in the shell and
+	// threaded down as a prop so the bar component stays a pure
+	// presenter. Strict greater-than threshold; equal-ratios is on-pace.
+	// Diagnostic sessions (`sessionDurationMs === null`) are exempt —
+	// the diagnostic isn't paced at the session level — so behindPace
+	// is held false there. The questions-ratio is
+	// `currentQuestionIndex / targetQuestionCount` (NOT +1). On Q1
+	// the questions ratio is 0, so any elapsed time triggers the red
+	// flip; that's intentional. Worked examples: Q2/50 at 14/15 min →
+	// behind (red); Q49/50 at 2/15 min → ahead (blue).
+	const currentQuestionIndex = props.targetQuestionCount - state.questionsRemaining
+	const behindPace =
+		sessionDurationMs !== null &&
+		state.elapsedSessionMs / sessionDurationMs >
+			currentQuestionIndex / props.targetQuestionCount
+
 	// Build the peripheral nodes inside narrowed branches so we don't
 	// have to re-check `sessionDurationMs !== null` when passing as a
 	// prop. Hidden entirely when the session has no duration (diagnostic
@@ -361,7 +379,11 @@ function FocusShell(props: FocusShellProps) {
 			</span>
 		)
 		sessionBarNode = (
-			<SessionTimerBar sessionId={props.sessionId} durationMs={sessionDurationMs} />
+			<SessionTimerBar
+				sessionId={props.sessionId}
+				durationMs={sessionDurationMs}
+				behindPace={behindPace}
+			/>
 		)
 	}
 
@@ -372,27 +394,12 @@ function FocusShell(props: FocusShellProps) {
 	// vestigial; commit 3 of the focus-shell overhaul leaves it on
 	// the props shape for now to avoid disrupting the drill /
 	// diagnostic content components, but no render path reads it).
-	//
-	// Pace-deficit color (post-overhaul-fixes commit 4, SPEC §6.6):
-	// when the user has consumed more session time than they have
-	// progressed through questions, the filled segments turn red.
-	// Strict greater-than threshold; equal-ratios is "on pace" → blue.
-	// Diagnostic sessions (`sessionDurationMs === null`) are exempt —
-	// the diagnostic isn't paced at the session level — so behindPace
-	// is held false there. Per plan §11.1, the questions-ratio is
-	// `currentQuestionIndex / targetQuestionCount` (NOT +1). On Q1
-	// the questions ratio is 0, so any elapsed time triggers the red
-	// flip — that's the intended behavior, not a regression.
-	const currentQuestionIndex = props.targetQuestionCount - state.questionsRemaining
-	const behindPace =
-		sessionDurationMs !== null &&
-		state.elapsedSessionMs / sessionDurationMs >
-			currentQuestionIndex / props.targetQuestionCount
+	// Always blue — the pace-deficit color signal moved to the
+	// session-timer bar in the post-overhaul-fixes follow-up.
 	const progressionBarNode = (
 		<QuestionProgressionBar
 			totalQuestions={props.targetQuestionCount}
 			questionsRemaining={state.questionsRemaining}
-			behindPace={behindPace}
 		/>
 	)
 
@@ -426,10 +433,10 @@ function FocusShell(props: FocusShellProps) {
 					<div className="mb-4 flex justify-end">{chronometerNode}</div>
 				) : null}
 				{progressionBarNode}
+				{sessionBarNode !== null ? <div className="mt-2">{sessionBarNode}</div> : null}
 				{questionTimerNode !== null ? (
 					<div className="mt-2">{questionTimerNode}</div>
 				) : null}
-				{sessionBarNode !== null ? <div className="mt-2">{sessionBarNode}</div> : null}
 				<div className="mt-2 text-foreground/70 text-sm">
 					Question <strong className="text-foreground">{questionNumber}</strong>
 					{" / "}
