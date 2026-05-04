@@ -372,10 +372,27 @@ function FocusShell(props: FocusShellProps) {
 	// vestigial; commit 3 of the focus-shell overhaul leaves it on
 	// the props shape for now to avoid disrupting the drill /
 	// diagnostic content components, but no render path reads it).
+	//
+	// Pace-deficit color (post-overhaul-fixes commit 4, SPEC §6.6):
+	// when the user has consumed more session time than they have
+	// progressed through questions, the filled segments turn red.
+	// Strict greater-than threshold; equal-ratios is "on pace" → blue.
+	// Diagnostic sessions (`sessionDurationMs === null`) are exempt —
+	// the diagnostic isn't paced at the session level — so behindPace
+	// is held false there. Per plan §11.1, the questions-ratio is
+	// `currentQuestionIndex / targetQuestionCount` (NOT +1). On Q1
+	// the questions ratio is 0, so any elapsed time triggers the red
+	// flip — that's the intended behavior, not a regression.
+	const currentQuestionIndex = props.targetQuestionCount - state.questionsRemaining
+	const behindPace =
+		sessionDurationMs !== null &&
+		state.elapsedSessionMs / sessionDurationMs >
+			currentQuestionIndex / props.targetQuestionCount
 	const progressionBarNode = (
 		<QuestionProgressionBar
 			totalQuestions={props.targetQuestionCount}
 			questionsRemaining={state.questionsRemaining}
+			behindPace={behindPace}
 		/>
 	)
 
