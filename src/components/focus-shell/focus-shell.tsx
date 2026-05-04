@@ -356,22 +356,28 @@ function FocusShell(props: FocusShellProps) {
 		state.elapsedSessionMs >= sessionDurationMs
 
 	// Pace-deficit color (post-overhaul-fixes follow-up, SPEC §6.6):
-	// the session-timer bar's fill is BLUE when on/ahead of pace, RED
-	// when behind. "Behind pace" is computed here in the shell and
-	// threaded down as a prop so the bar component stays a pure
-	// presenter. Strict greater-than threshold; equal-ratios is on-pace.
-	// Diagnostic sessions (`sessionDurationMs === null`) are exempt —
-	// the diagnostic isn't paced at the session level — so behindPace
-	// is held false there. The questions-ratio is
-	// `currentQuestionIndex / targetQuestionCount` (NOT +1). On Q1
-	// the questions ratio is 0, so any elapsed time triggers the red
-	// flip; that's intentional. Worked examples: Q2/50 at 14/15 min →
-	// behind (red); Q49/50 at 2/15 min → ahead (blue).
+	// the session-timer bar's fill is BLUE when within the cumulative
+	// per-question budget for the current question, RED only after the
+	// elapsed session time exceeds that budget. "Behind pace" is
+	// computed here in the shell and threaded down as a prop so the
+	// bar component stays a pure presenter. Diagnostic sessions
+	// (`sessionDurationMs === null`) are exempt — the diagnostic isn't
+	// paced at the session level — so behindPace is held false there.
+	//
+	// Threshold formula: `(currentQuestionIndex + 1) × perQuestionTargetMs`.
+	// In words: "the cumulative time you've been allotted to STILL be
+	// on the current question." For Q1 (currentQuestionIndex=0) of an
+	// 18s-target session, behind starts at t=18s — being at t=10s on
+	// Q1 is on-pace, not behind. For Q2 (currentQuestionIndex=1) of a
+	// 50q × 18s session, behind starts at t=36s. For Q49 of 50, behind
+	// starts at t=14:42 (882s) — at t=2 min the user is well ahead of
+	// pace. The formula matches the "you should have moved past Q_K by
+	// now" intuition rather than the earlier ratio-based formulation,
+	// which fired red on Q1 the moment any time elapsed.
 	const currentQuestionIndex = props.targetQuestionCount - state.questionsRemaining
+	const behindPaceThresholdMs = (currentQuestionIndex + 1) * props.perQuestionTargetMs
 	const behindPace =
-		sessionDurationMs !== null &&
-		state.elapsedSessionMs / sessionDurationMs >
-			currentQuestionIndex / props.targetQuestionCount
+		sessionDurationMs !== null && state.elapsedSessionMs > behindPaceThresholdMs
 
 	// Build the peripheral nodes inside narrowed branches so we don't
 	// have to re-check `sessionDurationMs !== null` when passing as a
