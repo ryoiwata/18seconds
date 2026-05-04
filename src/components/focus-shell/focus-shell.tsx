@@ -42,6 +42,7 @@
 // indicator below replaces the soft note.
 
 import * as errors from "@superbuilders/errors"
+import { useRouter } from "next/navigation"
 import * as React from "react"
 import { playDong, playTick, unlockAudio } from "@/components/focus-shell/audio-ticker"
 import { Heartbeat } from "@/components/focus-shell/heartbeat"
@@ -266,6 +267,44 @@ function FocusShell(props: FocusShellProps) {
 	)
 
 	const sessionDurationMs = props.sessionDurationMs
+
+	// Session auto-end (commit 7). When the session timer reaches zero,
+	// fire onEndSession and navigate to /post-session/<sessionId>.
+	// Diagnostic sessions pass `sessionDurationMs={null}` and skip this
+	// branch — the diagnostic uses the server-side cutoff in
+	// submitAttempt instead (polish-plan §3.1 / §4.2). Same
+	// double-guard as commit 6's dong: reducer flag is canonical state,
+	// useRef is the synchronous race-prevention.
+	const router = useRouter()
+	const sessionEndedRef = React.useRef<boolean>(false)
+	React.useEffect(
+		function maybeAutoEndSession() {
+			if (sessionDurationMs === null) return
+			if (state.elapsedSessionMs < sessionDurationMs) return
+			if (sessionEndedRef.current) return
+			sessionEndedRef.current = true
+			dispatch({ kind: "session_ended" })
+			// Verification-harness instrumentation: dispatch a
+			// production-safe CustomEvent. No-op when nothing listens.
+			// Mirrors the audio-ticker CustomEvent pattern from commit 6.
+			if (typeof window !== "undefined") {
+				const detail = { sessionId, elapsedMs: state.elapsedSessionMs }
+				window.dispatchEvent(new CustomEvent("session-ended", { detail }))
+			}
+			async function runAutoEnd(): Promise<void> {
+				const endResult = await errors.try(onEndSession())
+				if (endResult.error) {
+					logger.error(
+						{ error: endResult.error, sessionId },
+						"focus-shell: auto-end onEndSession threw — proceeding to navigation anyway"
+					)
+				}
+				router.push(`/post-session/${sessionId}`)
+			}
+			void runAutoEnd()
+		},
+		[state.elapsedSessionMs, sessionDurationMs, sessionId, onEndSession, router]
+	)
 
 	// Cosmetic last-question indicator (plan §5.6). Server is the
 	// source of truth for the cutoff; this is purely a UI hint flipped

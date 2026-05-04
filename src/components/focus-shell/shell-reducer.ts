@@ -65,6 +65,12 @@ interface ShellState {
 	// The FocusShell's audio effect uses this AND a synchronous useRef
 	// to prevent double-fires within a single render batch.
 	dongPlayedForCurrentQuestion: boolean
+	// Session-level auto-end gate (commit 7). True after the session
+	// timer has reached zero AND the FocusShell has fired its auto-end
+	// flow exactly once. Same double-guard pattern as
+	// dongPlayedForCurrentQuestion: the reducer flag is canonical state
+	// and a synchronous useRef prevents intra-render-batch double-fires.
+	sessionEnded: boolean
 }
 
 type ShellAction =
@@ -78,6 +84,7 @@ type ShellAction =
 	| { kind: "toggle_session_timer" }
 	| { kind: "toggle_question_timer" }
 	| { kind: "dong_played" }
+	| { kind: "session_ended" }
 
 interface InitArgs {
 	initialItem: ItemForRender
@@ -102,7 +109,8 @@ function initShellState(args: InitArgs): ShellState {
 		interQuestionVisibleUntilMs: undefined,
 		questionsRemaining: args.targetQuestionCount,
 		submitPending: false,
-		dongPlayedForCurrentQuestion: false
+		dongPlayedForCurrentQuestion: false,
+		sessionEnded: false
 	}
 }
 
@@ -262,6 +270,10 @@ function dispatchSecondary(state: ShellState, action: ShellAction): ShellState |
 	if (action.kind === "dong_played") {
 		if (state.dongPlayedForCurrentQuestion) return state
 		return { ...state, dongPlayedForCurrentQuestion: true }
+	}
+	if (action.kind === "session_ended") {
+		if (state.sessionEnded) return state
+		return { ...state, sessionEnded: true }
 	}
 	return undefined
 }

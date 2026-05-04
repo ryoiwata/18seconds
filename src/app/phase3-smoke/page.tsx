@@ -117,10 +117,27 @@ function readInitialQuestionTimerVisible(): boolean {
 	return true
 }
 
+// Read a one-shot query-string flag for sessionDurationMs override.
+// Used by the focus-shell-overhaul commit-7 verification harness to
+// drive the session-end auto-redirect without waiting 90s of wall
+// clock. Default 90000 (the original 5-question drill length); if
+// `?sd=<positive integer>` is present and parses, that value is used.
+function readSessionDurationMs(): number {
+	const defaultMs = 90_000
+	if (typeof window === "undefined") return defaultMs
+	const url = new URL(window.location.href)
+	const sd = url.searchParams.get("sd")
+	if (sd === null) return defaultMs
+	const parsed = Number.parseInt(sd, 10)
+	if (!Number.isFinite(parsed) || parsed <= 0) return defaultMs
+	return parsed
+}
+
 function PhaseThreeSmokePage() {
 	const [submitLog, setSubmitLog] = React.useState<SubmitLogEntry[]>([])
 	const itemIndexRef = React.useRef<number>(0)
 	const [initialQuestionTimerVisible] = React.useState<boolean>(readInitialQuestionTimerVisible)
+	const [sessionDurationMs] = React.useState<number>(readSessionDurationMs)
 
 	const onSubmitAttempt = React.useCallback(
 		async function onSubmitAttempt(input: SubmitAttemptInput): Promise<SubmitAttemptResult> {
@@ -159,9 +176,12 @@ function PhaseThreeSmokePage() {
 	const props: FocusShellProps = {
 		sessionId: "00000000-0000-7000-8000-000000000099",
 		sessionType: "drill",
-		// 5 questions × 18s = 90000ms — one of the enumerated durations
-		// the timer-bar duration map supports.
-		sessionDurationMs: 90_000,
+		// Defaults to 90_000 (5q × 18s — one of the enumerated
+		// durations the timer-bar duration map supports). The
+		// `?sd=<ms>` query-string flag (added in focus-shell overhaul
+		// commit 7) overrides for fast verification of the
+		// session-timer auto-redirect path without 90s of wall clock.
+		sessionDurationMs,
 		perQuestionTargetMs: 18_000,
 		targetQuestionCount: STUB_ITEMS.length,
 		paceTrackVisible: true,
