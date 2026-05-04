@@ -81,7 +81,7 @@ type ShellAction =
 	| { kind: "submit"; nowMs: number }
 	| { kind: "triage_take"; nowMs: number }
 	| { kind: "submit_started" }
-	| { kind: "advance"; next: ItemForRender }
+	| { kind: "advance"; next: ItemForRender; nowMs: number }
 	| { kind: "set_question_started"; nowMs: number }
 	| { kind: "toggle_session_timer" }
 	| { kind: "toggle_question_timer" }
@@ -201,7 +201,11 @@ function reduceSubmitStarted(state: ShellState): ShellState {
 	}
 }
 
-function reduceAdvance(state: ShellState, next: ItemForRender): ShellState {
+function reduceAdvance(
+	state: ShellState,
+	next: ItemForRender,
+	nowMs: number
+): ShellState {
 	return {
 		...state,
 		currentItem: next,
@@ -212,6 +216,21 @@ function reduceAdvance(state: ShellState, next: ItemForRender): ShellState {
 		interQuestionVisible: false,
 		interQuestionVisibleUntilMs: undefined,
 		questionsRemaining: state.questionsRemaining - 1,
+		// `questionStartedAtMs` is reset to the advance time so the very
+		// first `tick` action after advance computes a small
+		// `elapsedQuestionMs` instead of `nowMs - OLD_questionStartedAtMs`
+		// (which would be ~20s+ on a triage-take advance). Without this
+		// reset, that spurious tick fires `reduceTick`'s
+		// `if (!triagePromptFired && elapsedQuestionMs >= target)` branch,
+		// re-flipping `triagePromptFired: true` and stranding the prompt
+		// visible on the new question — observed in dogfooding as
+		// "Best move: guess and advance" not going away.
+		// `set_question_started` (from the next <ItemSlot>'s mount effect)
+		// then OVERRIDES this with the more precise paint-time value. On
+		// a same-id advance where ItemSlot doesn't remount, this advance-
+		// time value sticks; that's still a correct latency anchor since
+		// "first paint" doesn't apply when the screen never changed.
+		questionStartedAtMs: nowMs,
 		elapsedQuestionMs: 0,
 		// `submitPending` is also cleared by `set_question_started` from
 		// the next <ItemSlot>'s mount effect — the original "single
@@ -267,13 +286,23 @@ function dispatchPrimary(state: ShellState, action: ShellAction): ShellState | u
 	}
 	if (action.kind === "triage_take") return reduceTriageTake(state, action)
 	if (action.kind === "submit_started") return reduceSubmitStarted(state)
-	if (action.kind === "advance") return reduceAdvance(state, action.next)
+	if (action.kind === "advance") return reduceAdvance(state, action.next, action.nowMs)
 	if (action.kind === "set_question_started") {
 		return {
 			...state,
 			questionStartedAtMs: action.nowMs,
 			elapsedQuestionMs: 0,
-			submitPending: false
+			submitPending: false,
+			// Belt-and-suspenders: reset the triage-prompt flags here too.
+			// `reduceAdvance` already resets them, but if any tick action
+			// fires between `advance` and this dispatch (the mount effect
+			// fires after React's commit phase, with possibly-multiple
+			// ticks queued from earlier RAF frames), `reduceTick` could
+			// re-flip `triagePromptFired: true` based on a stale
+			// `questionStartedAtMs`. The `nowMs` reset in reduceAdvance
+			// closes the primary window; this is the secondary defense.
+			triagePromptFired: false,
+			triagePromptFiredAtMs: undefined
 		}
 	}
 	return undefined

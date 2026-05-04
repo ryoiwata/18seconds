@@ -159,7 +159,11 @@ function FocusShell(props: FocusShellProps) {
 				}
 				return
 			}
-			dispatch({ kind: "advance", next: result.nextItem })
+			dispatch({
+				kind: "advance",
+				next: result.nextItem,
+				nowMs: performance.now()
+			})
 		},
 		[onSubmitAttempt, onEndSession, sessionId]
 	)
