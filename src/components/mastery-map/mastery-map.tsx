@@ -28,6 +28,7 @@ import type { SubTypeId } from "@/config/sub-types"
 import { ComputingState } from "@/components/mastery-map/computing-state"
 import { MasteryIcon } from "@/components/mastery-map/mastery-icon"
 import { NearGoalLine } from "@/components/mastery-map/near-goal-line"
+import { SignOutButton } from "@/components/mastery-map/sign-out-button"
 import { StartSessionButton } from "@/components/mastery-map/start-session-button"
 import { TriageAdherenceLine } from "@/components/mastery-map/triage-adherence-line"
 
@@ -72,9 +73,12 @@ function MasteryMap(props: MasteryMapProps) {
 
 	return (
 		<main className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col gap-10 px-6 py-12">
-			<header className="space-y-3">
-				<h1 className="font-semibold text-2xl tracking-tight">Mastery Map</h1>
-				<NearGoalLine text={nearGoal} />
+			<header className="flex items-start justify-between gap-4">
+				<div className="space-y-3">
+					<h1 className="font-semibold text-2xl tracking-tight">Mastery Map</h1>
+					<NearGoalLine text={nearGoal} />
+				</div>
+				<SignOutButton />
 			</header>
 
 			<section className="space-y-6" aria-label="mastery">

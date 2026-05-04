@@ -17,7 +17,7 @@ import * as errors from "@superbuilders/errors"
 import { revalidatePath } from "next/cache"
 import { eq } from "drizzle-orm"
 import { z } from "zod"
-import { auth } from "@/auth"
+import { auth, signOut } from "@/auth"
 import { subTypeIds } from "@/config/sub-types"
 import { db } from "@/db"
 import { users } from "@/db/schemas/auth/users"
@@ -181,9 +181,23 @@ async function saveOnboardingTargets(input: {
 	revalidatePath("/")
 }
 
+// signOutAction — clears the NextAuth session and redirects to /login.
+// Wired to the Mastery Map header's <SignOutButton>. Plan:
+// docs/plans/phase3-drill-mode.md §7.
+//
+// NextAuth v5's signOut() handles cookie clearing and redirect
+// internally; passing { redirectTo: "/login" } drives the post-logout
+// landing route. The Auth.js session row in `auth_sessions` is cleared
+// by NextAuth's adapter; the client-side cookie clear happens via the
+// Set-Cookie header on the redirect response.
+async function signOutAction(): Promise<void> {
+	await signOut({ redirectTo: "/login" })
+}
+
 export {
 	endSession,
 	saveOnboardingTargets,
+	signOutAction,
 	startSession,
 	submitAttempt
 }
