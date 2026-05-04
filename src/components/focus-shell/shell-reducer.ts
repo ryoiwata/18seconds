@@ -59,12 +59,14 @@ interface ShellState {
 	// pressing Enter twice within the await window would dispatch a
 	// second submit against the same (now-stale) item snapshot.
 	submitPending: boolean
-	// Per-question audio gate (commit 6 of the focus-shell UI overhaul).
-	// True after the per-question dong has played for the current item;
-	// reset to false on `advance` so the next item's dong fires once.
-	// The FocusShell's audio effect uses this AND a synchronous useRef
-	// to prevent double-fires within a single render batch.
-	dongPlayedForCurrentQuestion: boolean
+	// Per-question audio gate (post-overhaul-fixes commit 2). True after
+	// the urgency-loop has started for the current item (i.e.,
+	// elapsedQuestionMs first crossed perQuestionTargetMs and the
+	// audio-ticker started the chosen MP3 looping). Reset to false on
+	// `advance` so the next item's per-question target re-arms. The
+	// loop itself is stopped via `stopUrgencyLoop` from a cleanup-on-
+	// item-change effect in FocusShell, NOT from the reducer.
+	urgencyLoopStartedForCurrentQuestion: boolean
 	// Session-level auto-end gate (commit 7). True after the session
 	// timer has reached zero AND the FocusShell has fired its auto-end
 	// flow exactly once. Same double-guard pattern as
@@ -83,7 +85,7 @@ type ShellAction =
 	| { kind: "set_question_started"; nowMs: number }
 	| { kind: "toggle_session_timer" }
 	| { kind: "toggle_question_timer" }
-	| { kind: "dong_played" }
+	| { kind: "urgency_loop_started" }
 	| { kind: "session_ended" }
 
 interface InitArgs {
@@ -109,7 +111,7 @@ function initShellState(args: InitArgs): ShellState {
 		interQuestionVisibleUntilMs: undefined,
 		questionsRemaining: args.targetQuestionCount,
 		submitPending: false,
-		dongPlayedForCurrentQuestion: false,
+		urgencyLoopStartedForCurrentQuestion: false,
 		sessionEnded: false
 	}
 }
@@ -224,9 +226,9 @@ function reduceAdvance(state: ShellState, next: ItemForRender): ShellState {
 		// FocusShell + reduceTriageTake's `submitPending` early return,
 		// so clearing here is safe.
 		submitPending: false,
-		// Per-question audio gate (commit 6) — reset so the next item's
-		// dong fires once.
-		dongPlayedForCurrentQuestion: false
+		// Per-question audio gate — reset so the next item's per-question
+		// target re-arms the urgency loop.
+		urgencyLoopStartedForCurrentQuestion: false
 	}
 }
 
@@ -280,9 +282,9 @@ function dispatchPrimary(state: ShellState, action: ShellAction): ShellState | u
 function dispatchSecondary(state: ShellState, action: ShellAction): ShellState | undefined {
 	if (action.kind === "toggle_session_timer") return reduceToggleSessionTimer(state)
 	if (action.kind === "toggle_question_timer") return reduceToggleQuestionTimer(state)
-	if (action.kind === "dong_played") {
-		if (state.dongPlayedForCurrentQuestion) return state
-		return { ...state, dongPlayedForCurrentQuestion: true }
+	if (action.kind === "urgency_loop_started") {
+		if (state.urgencyLoopStartedForCurrentQuestion) return state
+		return { ...state, urgencyLoopStartedForCurrentQuestion: true }
 	}
 	if (action.kind === "session_ended") {
 		if (state.sessionEnded) return state

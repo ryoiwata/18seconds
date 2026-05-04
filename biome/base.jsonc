@@ -38,6 +38,7 @@
 			"!scripts/_lib/sample.ts",
 			"!scripts/_lib/solve-verify.ts",
 			"!scripts/backfill-missing-embeddings.ts",
+			"!scripts/copy-sounds-to-public.ts",
 			"!scripts/generate-explanations.ts",
 			"!scripts/import-questions.ts",
 			"!scripts/migrate-opaque-option-ids.ts",

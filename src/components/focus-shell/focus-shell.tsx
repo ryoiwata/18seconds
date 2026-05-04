@@ -44,7 +44,7 @@
 import * as errors from "@superbuilders/errors"
 import { useRouter } from "next/navigation"
 import * as React from "react"
-import { playDong, playTick, unlockAudio } from "@/components/focus-shell/audio-ticker"
+import { startUrgencyLoop, stopUrgencyLoop, unlockAudio } from "@/components/focus-shell/audio-ticker"
 import { Heartbeat } from "@/components/focus-shell/heartbeat"
 import { InterQuestionCard } from "@/components/focus-shell/inter-question-card"
 import { ItemSlot } from "@/components/focus-shell/item-slot"
@@ -222,56 +222,48 @@ function FocusShell(props: FocusShellProps) {
 		}
 	}, [])
 
-	// Audio ticker (commit 6 of the focus-shell UI overhaul). Plays a
-	// soft tick at every integer second strictly greater than half the
-	// per-question target, and a "dong" at the target. For an 18s
-	// target: ticks at seconds 10, 11, 12, 13, 14, 15, 16, 17 (eight
-	// total) and a dong at second 18. Audio is gated on
-	// `timerPrefs.questionTimerVisible` — if the per-question timer
-	// bar is hidden, the audio is off too.
+	// Audio: urgency-loop model (post-overhaul-fixes round, SPEC §6.12).
+	// At session start (first user interaction) the audio-ticker picks
+	// one MP3 from the bank manifest at random and decodes it. When
+	// elapsedQuestionMs first crosses perQuestionTargetMs, the chosen
+	// file starts looping. The loop stops on item advance via the
+	// cleanup-on-id-change effect below. Same file replays for every
+	// question in the same session.
 	//
-	// Implementation: cross-second detection via a ref-tracked previous
-	// integer-second elapsed value. The dong is double-guarded — the
-	// reducer's `dongPlayedForCurrentQuestion` flag is the canonical
-	// state, and a synchronous useRef prevents intra-render-batch
-	// double-fires (React might run the effect twice in the same batch
-	// before the dispatch lands).
-	const prevSecondRef = React.useRef<number>(-1)
-	const dongPlayedRef = React.useRef<boolean>(false)
+	// Audio is gated on `timerPrefs.questionTimerVisible` — if the
+	// per-question timer bar is hidden, the audio is off too. The
+	// reducer's `urgencyLoopStartedForCurrentQuestion` flag prevents
+	// double-starts within the same question (the start condition is
+	// idempotent across re-renders past target).
 	const currentItemId = state.currentItem.id
 	React.useEffect(
-		function resetAudioOnItemAdvance() {
-			// `void currentItemId` registers the dependency for biome's
-			// exhaustive-deps check; the effect's actual job is to reset
-			// the audio-tracking refs whenever the item swaps, not to
-			// read the id value.
-			void currentItemId
-			prevSecondRef.current = -1
-			dongPlayedRef.current = false
+		function maybeStartUrgencyLoop() {
+			if (!state.timerPrefs.questionTimerVisible) return
+			if (state.elapsedQuestionMs < props.perQuestionTargetMs) return
+			if (state.urgencyLoopStartedForCurrentQuestion) return
+			startUrgencyLoop()
+			dispatch({ kind: "urgency_loop_started" })
 		},
-		[currentItemId]
+		[
+			state.elapsedQuestionMs,
+			state.timerPrefs.questionTimerVisible,
+			state.urgencyLoopStartedForCurrentQuestion,
+			props.perQuestionTargetMs
+		]
 	)
 	React.useEffect(
-		function maybePlayAudio() {
-			if (!state.timerPrefs.questionTimerVisible) return
-			const secondsElapsed = Math.floor(state.elapsedQuestionMs / 1000)
-			if (secondsElapsed === prevSecondRef.current) return
-			const targetSec = props.perQuestionTargetMs / 1000
-			const halfSec = targetSec / 2
-			const start = prevSecondRef.current + 1
-			for (let s = start; s <= secondsElapsed; s += 1) {
-				if (s > halfSec && s < targetSec) {
-					playTick()
-				}
-				if (s >= targetSec && !dongPlayedRef.current) {
-					dongPlayedRef.current = true
-					playDong()
-					dispatch({ kind: "dong_played" })
-				}
+		function stopUrgencyLoopOnAdvance() {
+			// `void currentItemId` registers the dependency for biome's
+			// exhaustive-deps check; the effect's actual job is to stop
+			// the loop in the cleanup whenever the item swaps. Cleanup-
+			// on-id-change uniformly handles every advance path (Submit,
+			// Space-triage, click-triage, server-end).
+			void currentItemId
+			return function cleanup() {
+				stopUrgencyLoop()
 			}
-			prevSecondRef.current = secondsElapsed
 		},
-		[state.elapsedQuestionMs, state.timerPrefs.questionTimerVisible, props.perQuestionTargetMs]
+		[currentItemId]
 	)
 
 	const sessionDurationMs = props.sessionDurationMs
