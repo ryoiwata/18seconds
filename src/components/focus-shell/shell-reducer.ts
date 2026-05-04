@@ -211,6 +211,19 @@ function reduceAdvance(state: ShellState, next: ItemForRender): ShellState {
 		interQuestionVisibleUntilMs: undefined,
 		questionsRemaining: state.questionsRemaining - 1,
 		elapsedQuestionMs: 0,
+		// `submitPending` is also cleared by `set_question_started` from
+		// the next <ItemSlot>'s mount effect — the original "single
+		// source of truth" for the clear, designed to keep Submit
+		// disabled across the network await. We mirror that clear here
+		// so the user is never stranded if the keyed mount-effect doesn't
+		// fire (e.g., server returns the same item id as the next item,
+		// which can happen on small bank fallbacks — see
+		// docs/plans/focus-shell-post-overhaul-fixes.md §2 candidate #4).
+		// The original race the comment guarded against (double-Enter
+		// during the await) is closed by the dispatch-site guards in
+		// FocusShell + reduceTriageTake's `submitPending` early return,
+		// so clearing here is safe.
+		submitPending: false,
 		// Per-question audio gate (commit 6) — reset so the next item's
 		// dong fires once.
 		dongPlayedForCurrentQuestion: false

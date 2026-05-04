@@ -103,7 +103,15 @@ function FocusShell(props: FocusShellProps) {
 	}, [])
 
 	const stateRef = React.useRef(state)
-	React.useEffect(
+	// `useLayoutEffect` (not `useEffect`) so the ref syncs synchronously
+	// after commit, before any browser-paint-or-event handler can read a
+	// stale value. The Space-key listener and other event handlers read
+	// `stateRef.current` to make decisions; with a regular `useEffect`,
+	// a Space keypress in the microsecond window between commit and the
+	// post-paint useEffect would read stale `triagePromptFired` /
+	// `submitPending` flags. See docs/plans/focus-shell-post-overhaul-
+	// fixes.md §2 candidate #3.
+	React.useLayoutEffect(
 		function syncStateRef() {
 			stateRef.current = state
 		},
