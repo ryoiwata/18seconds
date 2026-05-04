@@ -127,7 +127,6 @@ src/
 │   │   ├── question-timer-bar.tsx                             # NEW: <QuestionTimerBar>
 │   │   ├── triage-prompt.tsx                                  # NEW: persistent overlay with subtle escalating intensity 18s..30s
 │   │   ├── inter-question-card.tsx                            # NEW: <InterQuestionCard>
-│   │   ├── diagnostic-overtime-note.tsx                       # NEW: 15-second peripheral note at 15min mark of diagnostic
 │   │   ├── heartbeat.tsx                                      # NEW: client hook that posts sendBeacon every 30s + on pagehide
 │   │   └── shell-reducer.ts                                   # NEW: pure reducer for FocusShell state
 │   ├── item/
@@ -470,7 +469,7 @@ In shadow mode (the first 30 days after the workflow lands), `enforced` is alway
 | `if_then_plan` | `text` | nullable |
 | `recency_excluded_item_ids` | `uuid[]` | `notNull`, `default '{}'` |
 | `strategy_review_viewed` | `boolean` | `notNull`, `default false` (full-length 30s gate) |
-| `diagnostic_overtime_note_shown_at_ms` | `bigint` | nullable (diagnostic only) |
+| `diagnostic_overtime_note_shown_at_ms` | `bigint` | nullable, vestigial — left in place for sub-phase 1; no reader writes or reads it. The post-session pacing line (§6.10) is derived from `MAX(attempts.id)` minus `started_at_ms` instead. Drop in a future cleanup commit. |
 
 Indexes:
 - `practice_sessions_user_id_idx` on `user_id`.
@@ -901,8 +900,6 @@ interface ShellState {
     selectedOptionId?: string
     interQuestionVisible: boolean
     questionsRemaining: number
-    diagnosticOvertimeNoteShown: boolean
-    diagnosticOvertimeNoteVisibleUntilMs?: number
 }
 
 type ShellAction =
@@ -913,7 +910,6 @@ type ShellAction =
     | { kind: "advance"; next?: ItemForRender }
     | { kind: "toggle_session_timer" }
     | { kind: "toggle_question_timer" }
-    | { kind: "diagnostic_overtime_note_shown" }
 ```
 
 ### 6.3 Layout
@@ -972,7 +968,7 @@ The two per-question bars are wrapped by a shared `<QuestionTimerBarStack>` pare
 
 When `elapsedQuestionMs >= perQuestionTargetMs` and `triagePromptFired` is false, the reducer flips `triagePromptFired = true`, captures `triagePromptFiredAtMs = elapsedQuestionMs`, and the `<TriagePrompt>` overlay fades in. **The prompt is persistent — it stays visible until the user submits or takes it.** Visual intensity may subtly increase between the per-question target and 30 seconds, then plateaus. There is **no auto-submit** at any time during a question; the session timer is the only hard cutoff.
 
-When `sessionDurationMs !== null` and `elapsedSessionMs >= sessionDurationMs`, the focus shell auto-calls `onEndSession()` (wrapped in `errors.try()` so a server-action failure logs but doesn't strand the user) and navigates to `/post-session/[sessionId]`. The diagnostic case (`sessionDurationMs === null`) is exempt — it uses the diagnostic-overtime-note flow per §6.10.
+When `sessionDurationMs !== null` and `elapsedSessionMs >= sessionDurationMs`, the focus shell auto-calls `onEndSession()` (wrapped in `errors.try()` so a server-action failure logs but doesn't strand the user) and navigates to `/post-session/[sessionId]`. The diagnostic case (`sessionDurationMs === null`) is exempt — the diagnostic is untimed at the session level (PRD §4.1, capacity measurement) and ends only when all 50 attempts are submitted. Pacing feedback for the diagnostic surfaces post-session as a derived sentence, not in-flow; see §6.10.
 
 Two render rules:
 
@@ -1001,11 +997,30 @@ Spacebar is **not** bound; preventing default on space would break radio-button 
 
 After `submit` and before the next item paints, `<InterQuestionCard>` fades in for ~200ms (no progress count, no item index per PRD §5.1). The next item's `questionStartedAtMs` is captured AFTER the card fades out, in the `<ItemSlot>` mount effect.
 
-### 6.10 Diagnostic-overtime note
+### 6.10 Post-session pacing line (replaces the in-flow overtime note)
 
-Only mounted when `sessionType === "diagnostic"`. When `elapsedSessionMs` first crosses 900_000 (15 minutes) and `diagnosticOvertimeNoteShown` is false, the reducer fires `diagnostic_overtime_note_shown`, sets `diagnosticOvertimeNoteVisibleUntilMs = elapsedSessionMs + 15_000`, and a server action records `practice_sessions.diagnostic_overtime_note_shown_at_ms`. The peripheral element renders the note "you're at the real-test time limit; keep going to finish the calibration." for 15 seconds, then auto-dismisses.
+The diagnostic is untimed at the session level (PRD §4.1, capacity measurement, not triage). The focus shell renders no in-flow overtime overlay. Pacing feedback is derived post-session and surfaces as a single neutral sentence beneath the onboarding-targets form on `/post-session/[sessionId]`:
 
-The substantive feedback on overtime lives in the post-session review.
+> Your diagnostic took {N} minutes. The real CCAT is 15 minutes for 50 questions.
+
+The sentence renders only when the user took longer than 15 minutes (`elapsedMs > 900_000`); otherwise it is omitted. The phrasing is intentionally informational — the user calibrates against the real-CCAT reference without being primed by a triage frame the diagnostic isn't training. Drills will train pacing toward the same 15-min/50-question reference.
+
+`pacingMinutes` is derived in `loadSession` (`src/app/(diagnostic-flow)/post-session/[sessionId]/page.tsx`) on every load:
+
+```ts
+const lastAttemptId = await db
+    .select({ id: sql<string | null>`max(${attempts.id}::text)::uuid` })
+    .from(attempts)
+    .where(eq(attempts.sessionId, sessionId))
+
+const lastAttemptMs = timestampFromUuidv7(lastAttemptId).getTime()
+const elapsedMs = lastAttemptMs - row.startedAtMs
+const pacingMinutes = elapsedMs > 900_000 ? Math.round(elapsedMs / 60_000) : undefined
+```
+
+The query plan (verified via EXPLAIN ANALYZE) uses `attempts_session_id_idx`; cost is bounded by per-session attempts (≤50), independent of global table size. See §6.14.6 for the canonical UUIDv7-text-max pattern.
+
+**Vestigial column.** `practice_sessions.diagnostic_overtime_note_shown_at_ms` (§3.4) was the polish-round writer for an in-flow note that's been removed. Sub-phase 1 leaves it in place unread; a future cleanup commit drops it.
 
 ### 6.11 Heartbeat
 
@@ -1085,6 +1100,60 @@ Programmatic `.click()` calls don't satisfy the "trusted user gesture" requireme
 `getNextUniformBand` (in `src/server/items/selection.ts`) can re-serve a session-attempted item via the `session-soft` fallback level when the bank for a sub-type is small. With a 5-item `numerical.fractions` bank and a few attempts already in session, the fallback chain exhausts uniqueness and the server returns `nextItem.id === currentItem.id`. The focus shell's `<ItemSlot key={state.currentItem.id}>` keyed mount doesn't re-fire when the key doesn't change — which previously left `submitPending: true` indefinitely after triage take, producing the frozen-UI symptom.
 
 Commit 1 of the post-overhaul-fixes round added `submitPending: false` to `reduceAdvance`, which **masks** this server-side bug — the user is now unblocked even when the same item is re-served. They see the same options again, can re-answer, and proceed. The server-side aspect remains a real bug worth investigating (filed as a follow-up in `docs/plans/focus-shell-post-overhaul-fixes.md` §10). Don't remove the `submitPending: false` clear in `reduceAdvance` thinking it's redundant — it's load-bearing for this case.
+
+#### 6.14.6 UUIDv7-text-max pattern for time-derivation queries
+
+When a query needs the chronologically-latest row from a uuidv7-keyed table that has no `_ms` columns (project rule `rules/no-timestamp-columns.md`), use `max(id::text)::uuid` and decode the result via `timestampFromUuidv7` from `src/db/lib/uuid-time.ts`:
+
+```ts
+import { sql } from "drizzle-orm"
+import { timestampFromUuidv7 } from "@/db/lib/uuid-time"
+
+const rows = await db
+    .select({ lastId: sql<string | null>`max(${table.id}::text)::uuid` })
+    .from(table)
+    .where(eq(table.partitionKey, partitionValue))
+
+const lastId = rows[0]?.lastId
+if (lastId) {
+    const lastTimestamp = timestampFromUuidv7(lastId).getTime()
+    // ...
+}
+```
+
+**Why the text cast.** PostgreSQL has no built-in `max(uuid)` aggregate. Casting `id::text` enables PG's text MAX, which on UUIDv7's hex representation produces the same ordering as the underlying byte order — and UUIDv7's byte order matches its 48-bit time prefix. The result casts back to `uuid` cleanly.
+
+**Why this beats `ORDER BY id DESC LIMIT 1`.** The DESC-LIMIT shape uses `<table>_pkey` Index Scan Backward; PG walks the PK in reverse and filters out non-matching partition rows until it finds a match. At production scale that can scan many irrelevant rows. The `max(id::text)::uuid` shape uses the partition index (e.g., `attempts_session_id_idx`) to narrow to the partition's rows, then aggregates over them — cost is bounded by per-partition rows, independent of global table size.
+
+**First use site.** `loadSession` in `src/app/(diagnostic-flow)/post-session/[sessionId]/page.tsx` (the post-session pacing-line derivation, §6.10).
+
+#### 6.14.7 EXPLAIN ANALYZE as a verification convention for hot-route queries
+
+When introducing a new query on a hot route (any layout, any page that's hit on every navigation, any post-session-style route), capture an `EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)` plan and verify it uses an existing index (no Seq Scan). Log the cost in the commit message so a future reader can compare against drift. The §6.10 pacing-line query was verified this way during commit 3 of `docs/plans/phase3-diagnostic-flow.md`:
+
+```
+Aggregate (cost=9.40..9.41 rows=1 width=16)
+  -> Index Scan using attempts_session_id_idx on attempts
+       Index Cond: (session_id = $1)
+       Buffers: shared hit=3
+Execution Time: 0.076 ms
+```
+
+Compare alternative query shapes when the planner could pick differently at production scale; pick the shape that's bounded by per-partition work, not global table state.
+
+#### 6.14.8 Smoke-script directory and the workflow-side-effect inference gap
+
+`scripts/dev/smoke/*.ts` contains manual verification scripts that aren't part of `bun test`. They run when the developer sets up a verification environment (typically: docker postgres + `bun dev` running). The directory is the right home for any verification that:
+
+- Requires a running Next.js dev server (e.g., for the workflow runtime; see below).
+- Touches DB state in ways that aren't fully isolatable inside a single test.
+- Is meaningful as a manual sign-off step rather than an automated regression check.
+
+`bun test` runs only the hermetic tests under `src/**/*.test.ts` — DB-driven where the docker postgres alone is enough harness; pure-function for everything else.
+
+**Workflow-side-effect inference gap.** Vercel Workflows (`workflow/api`'s `start()`) only fire inside the Next.js server process — the runtime is wired via `withWorkflow` in `next.config.ts`. Calling `start(masteryRecomputeWorkflow, ...)` from outside that process (e.g., from `bun test`) throws "invalid workflow function." Per the next-tier-side-effect pattern: the workflow is verified by its observable downstream effect (mastery_state rows upsert), not by direct trigger assertion.
+
+The `scripts/dev/smoke/diagnostic-mastery-recompute.ts` smoke verifies the trigger→runtime→upsert chain via the abandon-sweep cron route (the only HTTP-accessible workflow trigger surface; both `endSession` and the cron call `start(masteryRecomputeWorkflow, [{sessionId}])` per §7.3, so workflow-fires-from-cron implies workflow-fires-from-endSession by call-shape equivalence). **The equivalence is an inference, not direct verification.** If `endSession`'s call site is ever modified, re-verify the equivalence by extending the smoke or by manual end-to-end exercise.
 
 ---
 
@@ -1673,17 +1742,17 @@ The shape of every session is: (NarrowingRamp) → FocusShell → PostSessionRev
 
 PRD §4.1. Fires when `(app)/layout.tsx` finds no completed-and-not-abandoned diagnostic session for the user.
 
-1. `/diagnostic/page.tsx` server component calls `startSession({ type: "diagnostic" })`. Skips the NarrowingRamp.
-2. `/diagnostic/content.tsx` (`"use client"`) renders `<FocusShell>` with:
-   - `sessionDurationMs: null` (untimed at the session level — the session timer bar and pace track are hidden).
-   - `perQuestionTargetMs: 18000` (so triage prompts still fire).
+1. `/diagnostic/page.tsx` is the explainer (server component). The user clicks "Start Diagnostic" to enter `/diagnostic/run`.
+2. `/diagnostic/run/page.tsx` server component calls `startSession({ userId, type: "diagnostic" })`. Idempotent: returns the existing in-progress sessionId on a fresh-resume; finalizes a stale orphan as `'abandoned'` and inserts fresh otherwise (see §7.1). Skips the NarrowingRamp.
+3. `/diagnostic/run/content.tsx` (`"use client"`) renders `<FocusShell>` with:
+   - `sessionDurationMs: null` (untimed at the session level — the session timer bar, pace track, and chronometer are hidden).
+   - `perQuestionTargetMs: 18000` (the per-question dual-bar timer + 18s triage prompt still fire).
    - `paceTrackVisible: false`.
    - `targetQuestionCount: 50`.
    - The first item is server-rendered into the page response; subsequent items come via `submitAttempt`.
-3. The shell drives `submitAttempt` for each of 50 items. `getNextItem` reads from `src/config/diagnostic-mix.ts`, indexed by current attempt count.
-4. At the 15-minute mark, the diagnostic-overtime note appears in the periphery for 15 seconds and `practice_sessions.diagnostic_overtime_note_shown_at_ms` is recorded.
+4. The shell drives `submitAttempt` for each of 50 items. `getNextItem` resolves the strategy `"fixed_curve"` and reads from `shuffledDiagnosticOrder(sessionId)` (the per-session deterministic permutation of `src/config/diagnostic-mix.ts`).
 5. After the 50th submit returns `{ nextItem: undefined }`, the shell calls `endSession` and `router.push('/post-session/' + sessionId)`.
-6. `/post-session/[sessionId]/page.tsx` renders `<PostSessionReview>` plus, for diagnostic sessions, the `<OnboardingTargets>` form. The substantive 15-min-overtime feedback appears here.
+6. `/post-session/[sessionId]/page.tsx` renders the `<OnboardingTargets>` form. When the diagnostic ran longer than 15 minutes, a derived neutral pacing line appears beneath the form per §6.10 ("Your diagnostic took {N} minutes. The real CCAT is 15 minutes for 50 questions."). No in-flow overtime overlay.
 7. After the user saves or skips targets, route back to `/` which now shows the populated Mastery Map with a recommended first session.
 
 A user can re-take the diagnostic from the History tab via "Retake diagnostic." The mastery values overwrite (still capped per the diagnostic source rules — never `mastered`); attempts and sessions history and `was_mastered` flags are preserved.
@@ -1844,7 +1913,7 @@ Six phases over a 2-week window. Each phase lists the files to create or modify 
 
 ### Phase 3 — Practice surface (week 1, days 5–7)
 
-- `src/components/focus-shell/{focus-shell,session-timer-bar,pace-track,question-timer-bar,triage-prompt,inter-question-card,diagnostic-overtime-note,heartbeat,shell-reducer}.{tsx,ts}` (NEW)
+- `src/components/focus-shell/{focus-shell,session-timer-bar,pace-track,question-timer-bar,triage-prompt,inter-question-card,heartbeat,shell-reducer}.{tsx,ts}` (NEW)
 - `src/server/sessions/{queries,start,submit,heartbeat,end}.ts` (NEW)
 - `src/server/items/{queries,selection}.ts` (NEW)
 - `src/server/triage/score.ts` (NEW)
