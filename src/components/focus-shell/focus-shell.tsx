@@ -49,7 +49,7 @@ import { Heartbeat } from "@/components/focus-shell/heartbeat"
 import { InterQuestionCard } from "@/components/focus-shell/inter-question-card"
 import { ItemSlot } from "@/components/focus-shell/item-slot"
 import { QuestionProgressionBar } from "@/components/focus-shell/question-progression-bar"
-import { QuestionTimerBar } from "@/components/focus-shell/question-timer-bar"
+import { QuestionTimerBarStack } from "@/components/focus-shell/question-timer-bar-stack"
 import { SessionTimerBar, formatRemaining } from "@/components/focus-shell/session-timer-bar"
 import {
 	type TickContext,
@@ -382,7 +382,7 @@ function FocusShell(props: FocusShellProps) {
 	let questionTimerNode: React.ReactNode = null
 	if (state.timerPrefs.questionTimerVisible) {
 		questionTimerNode = (
-			<QuestionTimerBar
+			<QuestionTimerBarStack
 				itemId={state.currentItem.id}
 				perQuestionTargetMs={props.perQuestionTargetMs}
 			/>
