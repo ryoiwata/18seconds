@@ -60,7 +60,7 @@ function QuestionTimerBarPrimary(props: QuestionTimerBarPrimaryProps) {
 			 * opacity-visible-then-hidden) share the same animation-duration.
 			 */}
 			<div
-				key={props.itemId}
+				key={`${props.itemId}-blue`}
 				data-testid="question-timer-primary-fill-blue"
 				className={cn(
 					"absolute inset-0 origin-left animate-fill-bar-with-opacity-vth bg-blue-600",
@@ -72,9 +72,14 @@ function QuestionTimerBarPrimary(props: QuestionTimerBarPrimaryProps) {
 			 * Red layer — invisible during phase 1, visible during phase 2.
 			 * Stacked on top of the blue layer (same DOM order = same z); the
 			 * opacity-flip is what controls which one the user sees.
+			 *
+			 * Sibling keys must be unique. Both layers tie their key to the
+			 * itemId so React remounts both on item swap (keyed remount is
+			 * what restarts the CSS animations), but each has a distinct
+			 * suffix so they don't collide as siblings of the same parent.
 			 */}
 			<div
-				key={props.itemId}
+				key={`${props.itemId}-red`}
 				data-testid="question-timer-primary-fill-red"
 				className={cn(
 					"absolute inset-0 origin-left animate-fill-bar-with-opacity-htv bg-red-600",
