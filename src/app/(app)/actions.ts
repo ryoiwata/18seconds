@@ -119,12 +119,12 @@ async function endSession(sessionId: string): Promise<void> {
 	revalidatePath(`/post-session/${sessionId}`)
 }
 
-// `recordDiagnosticOvertimeNote` was deleted in
-// docs/plans/phase-3-polish-practice-surface-features.md commit 2.
-// The diagnostic now hard-stops at 15 minutes (commit 1's
-// server-side cutoff in `submitAttempt`); the soft "you went over"
-// note is obsolete. The `practice_sessions.diagnostic_overtime_note_shown_at_ms`
-// DB column is left in place as vestigial — see plan §3.1 / §11.6.
+// `recordDiagnosticOvertimeNote` was the polish-round in-flow overlay
+// trigger; both it and the underlying overlay are deleted. The diagnostic
+// is untimed at the session level under the capacity-measurement framing
+// (PRD §4.1, plan docs/plans/phase3-diagnostic-flow.md §4). The
+// `practice_sessions.diagnostic_overtime_note_shown_at_ms` DB column is
+// left in place as vestigial-and-unread for sub-phase 1 — see plan §10.
 
 const allowedPercentiles = [50, 30, 20, 10, 5] as const
 const onboardingTargetsSchema = z.object({

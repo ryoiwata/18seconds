@@ -49,11 +49,11 @@ interface SubmitAttemptResult {
 interface FocusShellProps {
 	sessionId: string
 	sessionType: SessionType
-	// `null` for non-timed sessions. The diagnostic now passes the
-	// 15-minute hard-cutoff value (commit 1's
-	// DIAGNOSTIC_SESSION_DURATION_MS) so the session-progress bar and
-	// the cosmetic last-question indicator have something to bind to;
-	// the actual cutoff is enforced server-side in `submitAttempt`.
+	// `null` for sessions with no session-level duration. The diagnostic
+	// passes `null` (untimed at the session level — capacity measurement,
+	// not triage; see plan docs/plans/phase3-diagnostic-flow.md §4). Drill,
+	// full-length, and simulation pass a positive number which drives the
+	// session-progress bar, the chronometer, and the auto-end effect.
 	sessionDurationMs: number | null
 	perQuestionTargetMs: number
 	targetQuestionCount: number
@@ -66,9 +66,6 @@ interface FocusShellProps {
 	strictMode: boolean
 	onSubmitAttempt: (input: SubmitAttemptInput) => Promise<SubmitAttemptResult>
 	onEndSession: () => Promise<void>
-	// `onRecordDiagnosticOvertime` was deleted in commit 2 — the
-	// diagnostic now hard-stops at 15 minutes server-side, replacing
-	// the soft "you went over" note that this prop fired.
 }
 
 export type {

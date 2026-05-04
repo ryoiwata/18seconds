@@ -4,28 +4,21 @@
 // page.tsx via React.use() and mounts the FocusShell with diagnostic
 // config.
 //
-// Phase 3 polish commit 3 moved this from
-// /diagnostic/content.tsx — behavior unchanged from the original.
-// See docs/plans/phase-3-polish-practice-surface-features.md §6.1.
+// Plan: docs/plans/phase3-diagnostic-flow.md §4 + §5.
 //
-// Diagnostic config:
-//   - sessionDurationMs: null  (commit 4 wires DIAGNOSTIC_SESSION_DURATION_MS
-//     here; until then the chronometer/progress bar are hidden in the
-//     diagnostic flow and only the drill flow renders them)
+// Diagnostic config (capacity-measurement framing, PRD §4.1):
+//   - sessionDurationMs: null  (the diagnostic is untimed at the session
+//     level — capacity, not triage. The chronometer and session-progress
+//     bar do not render in the diagnostic flow.)
 //   - paceTrackVisible: false  (the diagnostic is not paced)
-//   - perQuestionTargetMs: 18000 (so the triage prompt still fires)
+//   - perQuestionTargetMs: 18000 (real-CCAT per-question target — drives
+//     the per-question dual-bar timer and the 18s triage prompt)
 //   - targetQuestionCount: 50  (matches diagnosticMix.length)
-//   - questionTimerVisible: true (commit 2 default flip — see plan §3.2 / §5.2)
 //
-// On the last submit, the FocusShell's `onEndSession` callback is what
-// fires the action. The action itself triggers `masteryRecomputeWorkflow`
+// On the last submit, the FocusShell's `onEndSession` callback fires the
+// `endSession` action. That action triggers `masteryRecomputeWorkflow`
 // from src/server/sessions/end.ts. After endSession resolves, we
 // router.push to /post-session/<sessionId> for the onboarding capture.
-//
-// `recordDiagnosticOvertimeNote` was deleted in commit 2 — the
-// diagnostic now hard-stops at 15 minutes server-side
-// (commit 1's `submitAttempt` cutoff), replacing the soft "you went
-// over" note that this prop fired.
 
 import { useRouter } from "next/navigation"
 import * as React from "react"

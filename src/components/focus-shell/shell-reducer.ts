@@ -14,15 +14,14 @@
 //   They never drift from the start values regardless of how many
 //   ticks were dropped (e.g., when a tab is backgrounded).
 //
-// Phase 3 polish commit 2 removed the diagnostic overtime-note
-// machinery (the `diagnostic_overtime_note_shown` action,
+// The diagnostic overtime-note reducer machinery (the
+// `diagnostic_overtime_note_shown` action,
 // `diagnosticOvertimeNoteShown` / `diagnosticOvertimeNoteVisibleUntilMs`
-// state fields, and the DIAGNOSTIC_OVERTIME_* constants). The diagnostic
-// now hard-stops at 15 minutes server-side in `submitAttempt`; the
-// soft "you went over" overlay is obsolete. The cosmetic last-question
-// indicator that surfaces when elapsedSessionMs crosses the diagnostic
-// duration is derived inline in the FocusShell component — no reducer
-// state is needed for it.
+// state fields, the DIAGNOSTIC_OVERTIME_* constants) is removed. The
+// diagnostic is untimed at the session level under the capacity-
+// measurement framing (PRD §4.1, plan
+// docs/plans/phase3-diagnostic-flow.md §4); pacing feedback after the
+// session is rendered post-session as a derived sentence (plan §6).
 
 import * as errors from "@superbuilders/errors"
 import type { ItemForRender, TimerPrefs } from "@/components/focus-shell/types"

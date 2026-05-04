@@ -48,8 +48,13 @@ interface SourceParams {
 
 function sourceParams(s: MasterySource): SourceParams {
 	if (s === "diagnostic") {
-		// 1.2× per docs/plans/phase-3-polish-practice-surface-features.md §3.1 — calibrated for 15-min cutoff, was 1.5 under the original untimed framing.
-		return { minAttempts: 3, latencyMultiplier: 1.2, allowMastered: false }
+		// 1.5× — diagnostic is untimed at the session level (PRD §4.1, plan
+		// docs/plans/phase3-diagnostic-flow.md §4). The diagnostic measures
+		// the user's untimed capacity baseline before triage training; this
+		// generous latency multiplier reflects "capacity, not triage." The
+		// polish round briefly calibrated this to 1.2× under a 15-minute
+		// session-level cutoff that has since been reverted.
+		return { minAttempts: 3, latencyMultiplier: 1.5, allowMastered: false }
 	}
 	if (s === "ongoing") {
 		return { minAttempts: 5, latencyMultiplier: 1.0, allowMastered: true }
