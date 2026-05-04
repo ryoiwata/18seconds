@@ -23,10 +23,10 @@ The features are grouped by what they actually are: some are already in the PRD 
 | 11 | Vocab study guide | Net-new | M | Medium | — |
 | 12 | Logout button | **SHIPPED** (sub-phase 3, commit `20948de`) | — | — | — |
 | A1 | Cohort comparisons (Alpha-relevant) | Considered, not prioritized | M | — | — |
-| A2 | Confidence calibration tracking | Core scope (carried forward; pending Leo's confirmation — see open questions) | S | High | — |
 | A3 | Pattern-recognition speed drills | Considered, not prioritized | M | — | — |
-| A4 | Pre-session readiness check | Re-elevated by Leo's 2026-05-04 list (was demoted at sub-phase 2 close); rationale needs Leo's confirmation — see open questions | S | Pending | Required |
 | A5 | Spaced-repetition tightening | PRD §4.3; Phase 5 deliverable | S | Medium (Phase 5) | — |
+
+A2 (Confidence calibration tracking) and A4 (Pre-session readiness check) were cut on 2026-05-04 — see "Open product questions" → Resolved.
 
 ---
 
@@ -38,7 +38,6 @@ Five features in this roadmap require PRD updates before plan-time. Each PRD upd
 - **#3 Click-to-highlight explanation review** — UI surface for the structured-explanation contract that Phase 2 already shipped architecturally. PRD addition belongs in §6.5 (post-session review).
 - **#7 Dojo mode** — rename from "drill" to "dojo" + belt-indicator UI extends PRD §4.2's drill-mode framing. PRD update is naming + a UI-surface paragraph.
 - **#8 Independent timer mode** — net-new feature, not in PRD at all. PRD addition belongs in §4 (engine surfaces) as a new sub-section.
-- **#A4 Pre-session readiness check** — net-new metacognitive feature, not in PRD. PRD addition belongs in §5.3 (NarrowingRamp) as an extension to the pre-session protocol.
 
 Two features that EXTEND existing PRD sections without requiring an update because their addition is already specified:
 - #6 Stats dashboard extends PRD §6 (Mastery Map already covers some of it).
@@ -287,15 +286,7 @@ Show the user's stats relative to a cohort: "you're scoring at the 70th percenti
 
 ### A2. Confidence calibration tracking
 
-**Status: Core scope (carried forward from sub-phase 2 close revision; pending Leo's confirmation).** Leo's 2026-05-04 feature list omits A2 — possibly a deliberate cut, possibly an oversight in the visible-features compilation. Carried forward unchanged as core scope per the prior revision's elevation rationale. **Open question (see "Open product questions"): confirm A2 still belongs in scope.** Calibration is a known performance differentiator on timed tests; the data trains the triage discipline directly. Slotted into Round G (or earlier if a slot opens).
-
-After each item, the user clicks one of: "I'm confident I got this right," "I think I got it right," "I'm guessing." Track confidence vs. actual outcome over time.
-
-**Why it matters**: high-scoring CCAT performers are well-calibrated — they know which items they got right and which they guessed on. The triage discipline depends on calibration: "should I commit to this answer or move on?" A user who thinks they're right when they're often wrong gets bad signal from the triage prompt.
-
-**The data trains pattern recognition**: post-session review can flag "you said you were confident on these 3 questions you got wrong — review these patterns specifically." That's higher-leverage feedback than "you got 3 questions wrong."
-
-**Scope estimate**: ~3-4 commits (confidence-input UI on item submit, schema column on `attempts`, post-session-review surfacing, calibration chart in stats dashboard).
+**Status: Cut 2026-05-04.** See "Open product questions" → Resolved for the decision context.
 
 ---
 
@@ -315,19 +306,7 @@ A drill mode where each "question" is a short pattern (e.g., a number series wit
 
 ### A4. Pre-session readiness check
 
-**Status: Re-elevated by Leo's 2026-05-04 list (was demoted at sub-phase 2 close); rationale needs Leo's confirmation — see "Open product questions."** *PRD update required* (extends PRD §5.3 NarrowingRamp).
-
-Before a session, a 30-second self-check: "rate your focus right now (1-5)," "rate your sleep last night (1-5)," "what's your goal for this session?" Then the session starts.
-
-The data feeds back into the post-session review and the stats dashboard: "you scored 8% better on sessions where your reported focus was 4 or higher."
-
-**Why it matters (Leo's 2026-05-04 framing — the metacognitive case)**: high performers know their own state — they don't drill when exhausted, they don't full-length-test on no sleep. Surfacing the correlation between self-reported state and actual outcomes makes the user more aware of their own patterns. This is a metacognitive feature, similar to confidence calibration (#A2).
-
-**Reversal of the prior demotion.** A4 was demoted at sub-phase 2 close with the rationale "adds friction to session start; defer until evidence users want it." Leo's 2026-05-04 list re-includes A4 with the metacognitive framing above. The new framing constitutes the rationale for reversing the demotion: A4 isn't friction-for-its-own-sake; it's a structured prompt that builds the same metacognitive loop A2 builds, applied pre-session rather than per-item. The friction concern is real but bounded — 30 seconds before a session is a small ask if the data feeds a real "you score 8% better when your reported focus is 4+" signal. Slotting A4 alongside A2 in Round G (metacognitive pair) is the natural fit.
-
-The reversal is conditional on Leo confirming the new rationale stands and that the friction concern doesn't override it. Until confirmed, the slot in Round G is held but the round shouldn't plan A4-specific work.
-
-**Scope estimate**: ~2-3 commits (form, schema, surfacing in stats). Integrates with the existing NarrowingRamp from PRD §5 — could fold into that surface as additional pre-session content.
+**Status: Cut 2026-05-04.** See "Open product questions" → Resolved for the decision context.
 
 ---
 
@@ -374,7 +353,7 @@ Based on what's user-facing, what unblocks subsequent rounds, what's grounded in
 
 **Round F — Admin question portal (#2).** Mid-sized round. Lower priority because it's not user-facing, but needed once the bank exceeds Leo's manual-review capacity. Slots after Round D since Round D's generated items are the volume that triggers the need.
 
-**Round G — Metacognitive features: Confidence calibration (#A2) [core scope, carried forward] + Pre-session readiness check (#A4) [re-elevated, pending confirmation].** Both features build the same metacognitive loop applied at different points (per-item for A2, pre-session for A4). Pairing them lets one round's stats-dashboard surfacing handle both signals (correlate confidence-vs-outcome, focus-rating-vs-outcome). ~5-6 commits combined IF A4 stays elevated and IF A2 stays in scope; round shape is contingent on both open questions resolving. Fallback: A2 alone (~3-4 commits).
+**Round G — CUT 2026-05-04.** Both component features (#A2 confidence calibration and #A4 pre-session readiness check) cut. See "Open product questions" → Resolved.
 
 **Round H — Dojo mode UI (#7) + independent timer (#8).** Belt-indicator UI for adaptive drills (depends on Round E's adaptive walking shipping first), plus the standalone timer surface. ~5-7 commits combined. Could split if dogfood signal favors timer over dojo or vice versa.
 
@@ -399,31 +378,21 @@ These are PRD non-goals or have been explicitly considered and rejected:
 
 ## Open product questions for Leo
 
-Items that need explicit decisions. The first two are blocking — they affect this revision's correctness — and should resolve before Round Bx (deploy-and-dogfood) finishes; the rest are forward-looking and don't block current rounds.
+### Resolved
 
-### Blocking (resolve before Round G plans)
+1. **A2 (confidence calibration): cut. Decision date 2026-05-04.** Leo's 2026-05-04 directive: cut entirely from scope. Round G evaporates (its other component, A4, also cut — see below).
 
-1. **A2 (confidence calibration): is it still in scope?** A2 was elevated to core scope at sub-phase 2 close with the rationale "calibration is a known performance differentiator on timed tests; the data trains the triage discipline directly." Leo's 2026-05-04 feature list omits A2 entirely. Two readings:
-   - *Deliberate cut* — the project no longer wants A2. If so, demote to "Considered, not prioritized" and remove from Round G.
-   - *Oversight* — A2 was missed when compiling the visible feature list, status unchanged. If so, the carry-forward is correct as-is.
-
-   The roadmap currently carries A2 forward as core scope (the conservative read — don't silently demote). Confirm or redirect.
-
-2. **A4 (pre-session readiness): does the metacognitive framing override the prior "adds friction" demotion?** A4 was demoted at sub-phase 2 close with the rationale "adds friction to session start; defer until evidence users want it." Leo's 2026-05-04 list re-includes A4 with the metacognitive framing ("high performers know their own state — they don't drill when exhausted"). The new framing is the rationale for reversal — A4 isn't friction-for-its-own-sake; it's a structured prompt that builds the same metacognitive loop A2 builds, applied pre-session. The friction concern is real but bounded (30 seconds).
-
-   The roadmap currently re-elevates A4 with the new rationale captured in §A4. Confirm the rationale stands AND that the friction concern is acceptable, OR keep A4 demoted (in which case Round G shrinks to A2-only or evaporates if A2 is also cut).
+2. **A4 (pre-session readiness): cut. Decision date 2026-05-04.** Leo's 2026-05-04 directive: cut entirely from scope. The metacognitive framing in Leo's earlier feature list is set aside; the prior sub-phase-2-close demotion ("adds friction; defer until evidence users want it") effectively stands as the durable position.
 
 ### Forward-looking (don't block current rounds)
 
-3. **Lessons authoring (#9): how thorough?** A 1500-word lesson per sub-type vs. a 3000-word lesson is a meaningfully different investment. Worth deciding before lesson authoring starts.
+1. **Lessons authoring (#9): how thorough?** A 1500-word lesson per sub-type vs. a 3000-word lesson is a meaningfully different investment. Worth deciding before lesson authoring starts.
 
-4. **Vocab study guide (#11): how long is the list?** 500 words is a reasonable starter; 1000+ words is more comprehensive but takes longer to populate. Bigger lists also make spaced repetition more meaningful but increase the time-to-completion for users who want to "study the whole list."
+2. **Vocab study guide (#11): how long is the list?** 500 words is a reasonable starter; 1000+ words is more comprehensive but takes longer to populate. Bigger lists also make spaced repetition more meaningful but increase the time-to-completion for users who want to "study the whole list."
 
-5. **Confidence calibration (#A2): three buttons or a slider?** Three-button discrete (confident / think / guess) is cleaner; a slider is more granular. Three-button is recommended (less cognitive overhead during a timed test) but worth confirming. Conditional on A2 staying in scope (open question 1).
+3. **Independent timer (#8) vs. dojo mode (#7) overlap.** They share the focus-shell-as-engine pattern but serve different use cases. Worth deciding whether they're discrete features or two configurations of one feature ("blank items + adaptive blanks" as a unified interface).
 
-6. **Independent timer (#8) vs. dojo mode (#7) overlap.** They share the focus-shell-as-engine pattern but serve different use cases. Worth deciding whether they're discrete features or two configurations of one feature ("blank items + adaptive blanks" as a unified interface).
-
-7. **Stats dashboard (#6) chart granularity.** Per-session line charts? Per-day rollups? Both? Most useful is probably per-session (one point per session) for sessions and per-day rollup for sub-type accuracy/latency. Worth confirming before chart rendering work starts.
+4. **Stats dashboard (#6) chart granularity.** Per-session line charts? Per-day rollups? Both? Most useful is probably per-session (one point per session) for sessions and per-day rollup for sub-type accuracy/latency. Worth confirming before chart rendering work starts.
 
 ---
 
