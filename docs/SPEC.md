@@ -918,21 +918,24 @@ type ShellAction =
 
 ### 6.3 Layout
 
-CSS Grid with named template areas:
+Vertical flex column with two regions — a chrome row at the top and a content region below it. There is no `footer` region anymore (the focus-shell overhaul collapsed it):
 
-```css
-grid-template-areas:
-    "header"
-    "content"
-    "footer";
-grid-template-rows: auto 1fr auto;
+```
+chrome row:
+    chronometer (top-right, MM:SS countdown)
+    <QuestionProgressionBar>      // top of three bars
+    <QuestionTimerBar>            // middle, when timerPrefs.questionTimerVisible
+    <SessionTimerBar>             // bottom, with "Overall time" label
+    "Question N / M" label (with optional "— last question" suffix)
+    horizontal divider
+content region:
+    <ItemPrompt> (question body + option buttons)
+    "Submit Answer" full-width button
 ```
 
-- `header` — `<SessionTimerBar>` and `<PaceTrack>` stacked. Both dimmed to ~20% opacity. Hidden entirely when `sessionType === "diagnostic"` (the diagnostic is untimed at the session level).
-- `content` — `<ItemPrompt>`. The ONLY fully-illuminated area (opacity 1.0).
-- `footer` — `<QuestionTimerBar>` when `timerPrefs.questionTimerVisible`.
-
-`<TriagePrompt>` is rendered as an overlay layer outside the named areas. `<DiagnosticOvertimeNote>` is rendered as a peripheral overlay only when `sessionType === "diagnostic"` and `elapsedSessionMs >= 900_000`. Dimming is animated by tweening `opacity` on each named area independently using `motion/react`.
+- The three bars stack with consistent vertical rhythm; their labels (`Per question time`, `Overall time`) sit immediately below the corresponding bar.
+- The progression bar is unconditional — it renders for every session type regardless of `timerPrefs`. The session bar + chronometer are hidden when `sessionDurationMs === null` (diagnostic) or `timerPrefs.sessionTimerVisible === false`. The per-question bar is hidden when `timerPrefs.questionTimerVisible === false`.
+- `<TriagePrompt>` is rendered as an overlay layer outside the chrome row + content region. `<InterQuestionCard>` and `<Heartbeat>` are siblings to the main column.
 
 ### 6.4 Timer animation strategy
 
@@ -952,17 +955,19 @@ grid-template-rows: auto 1fr auto;
 
 ### 6.6 Three peripheral elements
 
-| element | shape | depletion direction | default visibility | toggleable mid-session? |
+| element | shape | Fill direction | default visibility | toggleable mid-session? |
 |---|---|---|---|---|
-| `<SessionTimerBar>` | horizontal bar in `header`, with numeric readout (e.g. `8:42`) at the right end | left edge inward | ON for drill, full-length, simulation, review. **HIDDEN** for diagnostic. | yes; toggle persists per-user via `users.timer_prefs_json`. Toggling hides/shows the pace track in lockstep. |
-| `<PaceTrack>` | horizontal bar of discrete blocks (one per question), same height as session timer bar | leftmost block removed on each submit | tied to session-timer visibility. **HIDDEN** for diagnostic. | togglable only via the session timer toggle. |
-| `<QuestionTimerBar>` | horizontal bar in `footer`, depletes as the per-question target counts down | left edge inward | OFF for all session types unless previously enabled | yes |
+| `<SessionTimerBar>` | horizontal bar in the chrome row, with the numeric MM:SS readout (e.g. `8:42`) rendered as the chronometer at the page's top-right | fill grows from left edge as time elapses; red | ON for drill, full-length, simulation, review. **HIDDEN** for diagnostic. | yes; toggle persists per-user via `users.timer_prefs_json`. Toggling the session timer hides/shows the chronometer in lockstep. |
+| `<QuestionProgressionBar>` | horizontal bar of N equal-width segments in the chrome row, one segment per question target. Renamed from `<PaceTrack>` in the focus-shell overhaul (commit 3). | leftmost K segments filled solid blue when the user is on question K+1; the active and remaining segments stay neutral gray. The bar advances on each `advance` action, not on submit. | always visible — the segments give a "you're on K of N" hint independent of any toggle. | not toggleable (the bar is unconditional). |
+| `<QuestionTimerBar>` | horizontal bar in the chrome row, sits between the progression bar and the session timer bar | fill grows from left edge as time elapses; capped at 100% via `animation-fill-mode: forwards`; red | ON by default per the polish-plan default flip; user-toggleable | yes |
 
 `timerPrefs` is persisted per user. After every toggle, a server action writes `users.timer_prefs_json`. The server action does **not** call `revalidatePath` — this is a deliberate exception to the standard mutation pattern (§7.8).
 
 ### 6.7 Triage prompt — persistent, never auto-submits
 
 When `elapsedQuestionMs >= perQuestionTargetMs` and `triagePromptFired` is false, the reducer flips `triagePromptFired = true`, captures `triagePromptFiredAtMs = elapsedQuestionMs`, and the `<TriagePrompt>` overlay fades in. **The prompt is persistent — it stays visible until the user submits or takes it.** Visual intensity may subtly increase between the per-question target and 30 seconds, then plateaus. There is **no auto-submit** at any time during a question; the session timer is the only hard cutoff.
+
+When `sessionDurationMs !== null` and `elapsedSessionMs >= sessionDurationMs`, the focus shell auto-calls `onEndSession()` (wrapped in `errors.try()` so a server-action failure logs but doesn't strand the user) and navigates to `/post-session/[sessionId]`. The diagnostic case (`sessionDurationMs === null`) is exempt — it uses the diagnostic-overtime-note flow per §6.10.
 
 Two render rules:
 
@@ -1006,6 +1011,18 @@ The shell mounts a `<Heartbeat sessionId={sessionId} />` client component that:
 - Uses `sendBeacon`, not `fetch`, because `setInterval` callbacks fired via `fetch` get throttled when the tab is backgrounded (which would falsely abandon a session when the user briefly switches tabs).
 
 The route handler at `/api/sessions/[sessionId]/heartbeat` updates `last_heartbeat_ms = Date.now()` and returns `204`. The abandon-sweep cron (§7.12) finalizes sessions with stale heartbeats.
+
+### 6.12 Audio cues
+
+When `timerPrefs.questionTimerVisible` is true, the focus shell emits a 1Hz tick sound for integer seconds in the second half of `perQuestionTargetMs`, and a dong at `perQuestionTargetMs`. AudioContext is created lazily on first user interaction; ticks before that interaction are silent no-ops. The dong fires once per question; the flag resets on advance.
+
+For an 18-second per-question target this lands as eight ticks (seconds 10 through 17) followed by one dong at second 18. Audio gating mirrors the per-question timer bar's visibility — toggling the bar off also silences the audio. Audio is implemented in `src/components/focus-shell/audio-ticker.ts` via the Web Audio API directly (`OscillatorNode` + `GainNode`); there are no audio file assets.
+
+### 6.13 Submit semantics
+
+Submit is always enabled. Clicking Submit with no option selected records `selected_answer: NULL` in `attempts` and advances to the next item. Blank attempts are a real signal in the mastery model, not a UI error state — the user choosing to abandon a question cleanly is the strategic skill the triage prompt is designed to reinforce.
+
+The Space-key triage take uses the same submit path: it submits whatever's currently selected (blank if nothing). Random-pick "guess and advance" was dropped in the polish-plan commit 3 — random picks contaminate the mastery model with attempts that look real-but-wrong.
 
 ---
 
