@@ -958,10 +958,15 @@ content region:
 | element | shape | Fill direction | default visibility | toggleable mid-session? |
 |---|---|---|---|---|
 | `<SessionTimerBar>` | horizontal bar in the chrome row, with the numeric MM:SS readout (e.g. `8:42`) rendered as the chronometer at the page's top-right | fill grows from left edge as time elapses; red | ON for drill, full-length, simulation, review. **HIDDEN** for diagnostic. | yes; toggle persists per-user via `users.timer_prefs_json`. Toggling the session timer hides/shows the chronometer in lockstep. |
-| `<QuestionProgressionBar>` | horizontal bar of N equal-width segments in the chrome row, one segment per question target. Renamed from `<PaceTrack>` in the focus-shell overhaul (commit 3). | leftmost K segments filled solid blue when the user is on question K+1; the active and remaining segments stay neutral gray. The bar advances on each `advance` action, not on submit. | always visible — the segments give a "you're on K of N" hint independent of any toggle. | not toggleable (the bar is unconditional). |
-| `<QuestionTimerBar>` | horizontal bar in the chrome row, sits between the progression bar and the session timer bar | fill grows from left edge as time elapses; capped at 100% via `animation-fill-mode: forwards`; red | ON by default per the polish-plan default flip; user-toggleable | yes |
+| `<QuestionProgressionBar>` | horizontal bar of N equal-width segments in the chrome row, one segment per question target. Renamed from `<PaceTrack>` in the focus-shell overhaul (commit 3). | leftmost K segments filled solid; remaining segments stay neutral gray. The fill color flips between blue and red based on session pace: BLUE when on/ahead of pace, RED when behind. "Behind pace" is `elapsedSessionMs / sessionDurationMs > currentQuestionIndex / targetQuestionCount` (strict greater-than; equal-ratios is on-pace). The flip is all-segments-at-once, not segment-by-segment. Diagnostic sessions (`sessionDurationMs === null`) hold blue regardless. | always visible — the segments give a "you're on K of N" hint independent of any toggle. | not toggleable (the bar is unconditional). |
+| `<QuestionTimerBarPrimary>` | top of two stacked per-question bars in the chrome row. Covers `[0, perQuestionTargetMs)`. Two stacked fill layers (blue underneath, red on top) sharing the gray track. | fill ratio = `min(elapsedQuestionMs / perQuestionTargetMs, 1.0)`. Color is **discretely keyed** to elapsed time: BLUE for `[0, perQuestionTargetMs / 2)`, RED for `[perQuestionTargetMs / 2, perQuestionTargetMs]`. The flip is a discrete jump at half-target — the entire current fill turns red, not a gradient. Capped at 100% red past target via `animation-fill-mode: forwards`. | tied to `timerPrefs.questionTimerVisible` (ON by default per the polish-plan default flip). | yes |
+| `<QuestionTimerBarOverflow>` | bottom of the two stacked per-question bars in the chrome row, sits directly below the primary bar. Single red fill on a gray track. | empty (`scaleX(0)`) for `elapsedQuestionMs < perQuestionTargetMs`. Fills 0 → 100% red over `[perQuestionTargetMs, 2 × perQuestionTargetMs)`. Caps at 100% red beyond. The fill is held at scaleX(0) during the delay window via `animation-fill-mode: both` (NOT `forwards` — see §6.14). | tied to `timerPrefs.questionTimerVisible` (renders as a sibling of the primary bar). | yes (lockstep with the primary bar) |
+
+The two per-question bars are wrapped by a shared `<QuestionTimerBarStack>` parent that owns the layout rhythm and the "Per question time" label sitting beneath the pair.
 
 `timerPrefs` is persisted per user. After every toggle, a server action writes `users.timer_prefs_json`. The server action does **not** call `revalidatePath` — this is a deliberate exception to the standard mutation pattern (§7.8).
+
+**Two reds in the chrome row, intentionally.** When a drill user is behind pace, both the session timer bar and the progression bar render in `bg-red-600` simultaneously. They share the token but signal different things — the session bar's red is *absolute time elapsed*, the progression bar's red is *pace deficit relative to questions completed*. This is intentional, not visual confusion: the doubled signal reinforces "you are running out of time" when both axes are stressed. The two indicators decouple — fast answering on early questions can clear the progression bar's red while the session bar continues filling.
 
 ### 6.7 Triage prompt — persistent, never auto-submits
 
@@ -1014,15 +1019,66 @@ The route handler at `/api/sessions/[sessionId]/heartbeat` updates `last_heartbe
 
 ### 6.12 Audio cues
 
-When `timerPrefs.questionTimerVisible` is true, the focus shell emits a 1Hz tick sound for integer seconds in the second half of `perQuestionTargetMs`, and a dong at `perQuestionTargetMs`. AudioContext is created lazily on first user interaction; ticks before that interaction are silent no-ops. The dong fires once per question; the flag resets on advance.
+The focus shell uses a hybrid two-path audio model — synthesized ticks before the per-question target, a sampled MP3 looping from the target until advance.
 
-For an 18-second per-question target this lands as eight ticks (seconds 10 through 17) followed by one dong at second 18. Audio gating mirrors the per-question timer bar's visibility — toggling the bar off also silences the audio. Audio is implemented in `src/components/focus-shell/audio-ticker.ts` via the Web Audio API directly (`OscillatorNode` + `GainNode`); there are no audio file assets.
+**Pre-target ticks.** When `timerPrefs.questionTimerVisible` is true, a soft 880 Hz sine pip fires at every integer second strictly greater than half the per-question target and strictly less than the target itself. For an 18-second target this lands as eight ticks at seconds 10, 11, 12, 13, 14, 15, 16, 17. Each tick is ~50 ms, peak gain 0.12, synthesized via `OscillatorNode` + `GainNode`. AudioContext is created lazily on first user interaction; calls before that unlock are silent no-ops. There is no synth dong at second 18 — the urgency loop's first second of playback replaces it.
+
+**Post-target urgency loop.** At session start (the same first-interaction moment that creates the AudioContext), one MP3 file is picked at random from the bank manifest at `src/config/sound-bank.ts`. The manifest is build-time-generated by `scripts/copy-sounds-to-public.ts` from the top-level `*.mp3` files in `data/sounds/` — subdirectories under `data/sounds/` (e.g., `success/`, `failure/`, `ticks/`) are deliberately NOT enumerated; the bank is the top-level files only. The chosen file's `AudioBuffer` is fetched and decoded once. When `elapsedQuestionMs` first crosses `perQuestionTargetMs`, that buffer starts playing in a loop (`source.loop = true`) at peak gain ~0.8. The loop stops on item advance via a cleanup-on-`currentItem.id`-change effect — uniformly handles every advance path (Submit click, Space-triage take, click-triage take, server-end). The same file plays for every question in the session; a hard refresh re-picks.
+
+**Gating and silence.** Audio is gated on `timerPrefs.questionTimerVisible`. When the per-question timer bar is hidden, both pre-target ticks and the post-target loop are silent. Before the first user interaction, AudioContext doesn't exist and every audio path returns silently — there is no silent fallback to "no sound, but state still ticks"; failure-to-play is the *correct* behavior under browser autoplay policy.
+
+Audio is implemented in `src/components/focus-shell/audio-ticker.ts`. The reducer's `urgencyLoopStartedForCurrentQuestion` flag prevents double-starts within a question; pre-target ticks use a `useRef`-tracked previous-integer-second value (no reducer state) for cross-second detection.
 
 ### 6.13 Submit semantics
 
 Submit is always enabled. Clicking Submit with no option selected records `selected_answer: NULL` in `attempts` and advances to the next item. Blank attempts are a real signal in the mastery model, not a UI error state — the user choosing to abandon a question cleanly is the strategic skill the triage prompt is designed to reinforce.
 
 The Space-key triage take uses the same submit path: it submits whatever's currently selected (blank if nothing). Random-pick "guess and advance" was dropped in the polish-plan commit 3 — random picks contaminate the mastery model with attempts that look real-but-wrong.
+
+### 6.14 Implementation notes for contributors
+
+Five learned-the-hard-way items from the focus-shell post-overhaul-fixes round (commits 1–4 of `docs/plans/focus-shell-post-overhaul-fixes.md`). Read these before touching the focus-shell internals.
+
+#### 6.14.1 Q1 pace-deficit semantics
+
+`<QuestionProgressionBar>`'s `behindPace` prop is computed as `elapsedSessionMs / sessionDurationMs > currentQuestionIndex / targetQuestionCount` with a 0-based `currentQuestionIndex`. Consequence: on Q1 of any drill, `currentQuestionIndex = 0` and the questions-ratio is `0 / N = 0`. ANY elapsed time then produces `time-ratio > 0`, which is `> 0`, which flips behindPace to true. **The bar starts red the moment the timer begins ticking on Q1.** This is the intentional behavior; the worked examples in the plan (Q2 of 50 at t=10/15min, Q49 of 50 at t=13/15min) both rely on this index-based ratio. If a future contributor is tempted to "fix" the Q1-starts-red behavior by switching to `(currentQuestionIndex + 1) / targetQuestionCount`, that would invert the semantics for every question — Q49 of 50 at the late-session edge would suddenly read as behind. Don't.
+
+#### 6.14.2 Tailwind v4 footguns
+
+Two distinct issues surfaced while implementing the dual stacked timer bars (commit 3); both are general enough to bite future contributors.
+
+- **`[animation-delay:Nms]` arbitrary-property classes are mangled.** Tailwind v4 silently expands `[animation-delay:18000ms]` into multiple `animation` shorthand declarations (`enter` and `exit` named utilities) inside the same generated class. Each shorthand resets the `animation-delay` sub-property to `0s`. The generated CSS looks like:
+
+  ```css
+  .[animation-delay\:18000ms] {
+      animation-delay: 18s;
+      animation: enter ...;     /* resets delay */
+      animation: exit ...;      /* resets delay */
+  }
+  ```
+
+  **Fix:** bake the duration AND the delay into a custom utility variable that uses the full `animation` shorthand: `--animate-fill-bar-after-target: fill-bar 18000ms linear 18000ms both;`. Don't rely on stacking `animate-fill-bar` with a separate `[animation-delay:...]` arbitrary class.
+
+- **`animation-fill-mode: forwards` does NOT apply the FROM keyframe during the delay window.** With `forwards`, an animation with positive `animation-delay` shows the element's *default* state (no transform applied) during the delay — for a `transform: scaleX(0)` keyframe, that means the bar renders at full width instead of empty. **Fix:** use `animation-fill-mode: both` instead. `both` applies the FROM keyframe during the delay AND holds the TO keyframe after the animation ends.
+
+#### 6.14.3 Animation-time harness measurement
+
+When verifying CSS keyframe behavior with `playwright-core`, sample on `element.getAnimations()[0].currentTime` (a browser-side `DOMHighResTimeStamp` in milliseconds since the animation began) rather than wall-clock from the harness side. The harness's `Date.now()` and the browser's `performance.now()` are not synchronized across the page-load → first-paint → animation-mount sequence; in our verification runs the offset was 150–300 ms. For any assertion that requires sub-second precision around a keyframe boundary (e.g., the half-target color flip in the primary timer bar), use the animation's own clock.
+
+#### 6.14.4 Headless-Chromium autoplay policy
+
+`AudioContext` won't reach `state === "running"` in headless Chromium unless **both**:
+
+1. The browser is launched with `--autoplay-policy=no-user-gesture-required` (Playwright `chromium.launch({ args: [...] })`), AND
+2. The unlock click is delivered via real pointer events (`page.click(selector)` in Playwright), NOT programmatic `.click()` from `page.evaluate(() => element.click())`.
+
+Programmatic `.click()` calls don't satisfy the "trusted user gesture" requirement that gates AudioContext unlocking, even with the launch flag set. Production users always click via real input, so this is a harness-only consideration. Surfaced because it caused 7/8 silent-failures in the commit-2 verification harness before being diagnosed.
+
+#### 6.14.5 Session-engine same-id-advance bug (server-side, masked by client)
+
+`getNextUniformBand` (in `src/server/items/selection.ts`) can re-serve a session-attempted item via the `session-soft` fallback level when the bank for a sub-type is small. With a 5-item `numerical.fractions` bank and a few attempts already in session, the fallback chain exhausts uniqueness and the server returns `nextItem.id === currentItem.id`. The focus shell's `<ItemSlot key={state.currentItem.id}>` keyed mount doesn't re-fire when the key doesn't change — which previously left `submitPending: true` indefinitely after triage take, producing the frozen-UI symptom.
+
+Commit 1 of the post-overhaul-fixes round added `submitPending: false` to `reduceAdvance`, which **masks** this server-side bug — the user is now unblocked even when the same item is re-served. They see the same options again, can re-answer, and proceed. The server-side aspect remains a real bug worth investigating (filed as a follow-up in `docs/plans/focus-shell-post-overhaul-fixes.md` §10). Don't remove the `submitPending: false` clear in `reduceAdvance` thinking it's redundant — it's load-bearing for this case.
 
 ---
 

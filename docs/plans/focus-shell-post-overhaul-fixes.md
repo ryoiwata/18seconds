@@ -1,28 +1,18 @@
-# Plan — Focus-shell post-overhaul fixes and features (v2)
+# Plan — Focus-shell post-overhaul fixes and features
 
-> **Status: drafted 2026-05-03; pre-implementation.** Six items grouped into one round, slated for the next implementation pass after the focus-shell overhaul (commits `3734b5c..415d969`) lands. Hashes will land here once the work commits.
+> **Status: shipped 2026-05-04 across seven commits — `4eff72c` (commit 1, bug fix), `07ae25b` (commit 2, urgency-loop introduction), `af9a088` (commit 2.5, hybrid restoration), `67942e3` (commit 2.6, placeholder cleanup), `fae3501` (commit 3, stacked timer bars), `906c167` (commit 4, pace-keyed progression), `9bd90e7` (commit 4 follow-up, duplicate-key fix), and the doc commit at the head of `main`. The text below describes the design as shipped; some sections (notably §3 and §6) walked back from earlier drafts during implementation, and the document reflects the delivered behavior rather than the design history. Commit messages carry the intermediate-decision history.**
 
-The focus-shell overhaul shipped a structurally-correct shell — three bars in the chrome row, audio cues at the per-question target, session-timer auto-redirect, typography aligned to the target screenshots. Dogfooding then surfaced one regression and five tuning items. The regression (a triage-take dead-end) blocks Phase 3 dogfooding entirely; the rest are tuning that the user noticed once the structural work was out of the way. They land together because they share the same component surface and the same playwright-core verification protocol — verifying them together amortizes the harness setup cost.
+The focus-shell overhaul (the prior round, commits `3734b5c..415d969`) shipped a structurally-correct shell — three bars in the chrome row, audio cues at the per-question target, session-timer auto-redirect, typography aligned to the target screenshots. Dogfooding then surfaced one regression and five tuning items, plus one in-flight bug surfaced during implementation. They were bundled into a single round because they share the same component surface and the same playwright-core verification protocol — verifying them together amortized the harness setup cost.
 
-## What changed from v1
+## 1. Why these items, why this ordering
 
-The v1 plan modeled audio as three distinct synthesized layers — a louder pre-dong tick, a real-gong dong sample, and a harsher post-dong tick — with peak-gain tuning across all three. v2 collapses the entire audio model to a single rule:
+The work clustered into three themes:
 
-**One MP3 picked at random from `./data/sounds` at session start, looped continuously starting when `elapsedQuestionMs` first crosses `perQuestionTargetMs`, stopped on `advance`. Same file replays for every question in the same session.**
+- **Triage post-flow integrity (item 1).** A regression: after the user took the triage prompt, the new item painted but didn't accept input. Load-bearing — without a working triage take, the pedagogical core of the focus shell (the "abandon and advance" decision) can't be exercised. Blocked Phase 3 dogfooding.
+- **Audio escalation (items 2–4, collapsed into a single hybrid rule).** The synthesized dong from the prior round was too gentle and silence past the target let users linger without escalation. The shipped solution is a hybrid: synth ticks pre-target plus a randomly-picked MP3 looping post-target until advance — see §3.
+- **Richer timing visualization (items 5, 6).** A stacked pair of per-question bars to show "approaching deadline" + "past deadline" without changing the no-auto-submit rule, plus a pace-deficit color flip on the question progression bar so users can see at a glance whether they're behind on the session as a whole.
 
-This eliminates pre-dong ticks entirely, eliminates the dong's distinctness from post-dong audio, eliminates synth-vs-sample fallback logic, and eliminates per-second cross-detection in `focus-shell.tsx`. The implementation surface for the audio work shrinks by roughly 60%.
-
-The rest of the plan is unchanged. If you reviewed v1, the changed sections are §3, §5, §8 (commit sequencing), and §11 (open questions). Items 1, 5, and 6 are word-for-word identical.
-
-## 1. Why these six items, why now
-
-The six items cluster into three themes:
-
-- **Triage post-flow integrity (item 1).** A regression: after the user takes the triage prompt, the new item paints but doesn't accept input. This is a load-bearing bug — without a working triage take, the pedagogical core of the focus shell (the "abandon and advance" decision) can't be exercised. Highest priority; blocks dogfooding.
-- **Audio escalation discipline (items 2-4, now collapsed into a single "looping urgency sample" model).** The synthesized dong is too gentle; silence past the target lets users linger without escalation. v2's single rule replaces the v1 three-layer model.
-- **Richer timing visualization (items 5, 6).** Two visual upgrades that the existing one-bar / one-color shell can't express: a second per-question bar to show overtime budget without changing the "no auto-submit" rule, and a pace-deficit color flip on the question progression bar so users can see at a glance whether they're behind on the session as a whole.
-
-The bug fix MUST land first, in its own commit, so subsequent feature commits can verify against a working triage flow. After the bug fix, the audio commit and then the visual commits — audio is cheaper to verify than the dual-bar visual, and the visual commit is the riskiest item in the round.
+The bug fix shipped first in its own commit so subsequent feature commits could verify against a working triage flow. The audio commits landed next (cheaper to verify than the dual-bar visual). The visual commits (timer-bar split + pace-keyed progression) landed last, with the doc commit closing the round.
 
 ## 2. Item 1 — Triage take strands the user on the next item (BUG)
 
@@ -94,117 +84,79 @@ Single regression test, run against a real drill (since the smoke route's `onEnd
 
 Negative control: run the same scenario on the current `main` branch BEFORE the fix and confirm the click on the option button does NOT register (`aria-pressed` stays false). This confirms the harness reproduces the bug.
 
-## 3. Items 2-4 — Replace audio model with one looped sample per session (FEATURE)
+## 3. Items 2–4 — Hybrid audio model: synth ticks pre-target, sample loop post-target (FEATURE)
 
-### What's missing
+### What's broken (and what isn't)
 
-Today's audio model (post-commit 6) fires a soft 880 Hz pre-dong tick at integer seconds 10-17, a synthesized 220 Hz dong at second 18, then silence. Three problems surfaced in dogfooding:
+The prior round's audio fired a soft 880 Hz tick at integer seconds 10–17, a synthesized 220 Hz dong at second 18, then silence. Two of those layers were keepers; one wasn't:
 
-- The dong is too gentle — users hear it and keep working.
-- The pre-dong tick is too quiet at default OS volume.
-- Silence past the target lets users linger indefinitely without escalation.
+- The pre-target tick cadence is good — eight ticks in the second half of the per-question target give the user an unmistakable "approaching deadline" cue. Volume (0.12 peak gain) is at-the-floor of audible, but not unworkable; tuning is a separate decision from architecture.
+- The synth dong was too gentle. Users heard it and kept working.
+- Silence past the target let users linger indefinitely without escalation.
 
-v1 of this plan modeled the fix as three distinct audio paths (gong sample for the dong, harsher square-wave post-dong tick, gain bumps for both pre- and post-dong). v2 collapses all three into a single rule.
+The shipped solution preserves the ticks and replaces the dong + post-target silence with a randomly-picked MP3 looping until advance.
 
-### What it should do
+### What it does
 
-**One audio rule replaces the entire pre-dong tick + dong + post-dong tick model:**
+**Hybrid audio. Two distinct paths:**
 
-- At session start, pick one MP3 file at random from a curated bank under `data/sounds/`. Hold the chosen file for the entire session. Every question in the session uses the same file.
-- When `elapsedQuestionMs` first crosses `perQuestionTargetMs`, start playback of the chosen file with `loop = true`.
-- When the user advances to the next item (any path: Submit click, Space, triage take), stop playback. The next question's audio uses the same file but starts fresh from `currentTime = 0` if and when it crosses its own per-question target.
-- No volume bumps, no synth, no per-second cross detection, no dedup logic. The browser handles the loop; the `advance` action handles the stop.
+1. **Pre-target ticks** — synthesized 880 Hz sine pip at every integer second `s` where `halfTarget < s < target`. For an 18-second target: ticks at seconds 10, 11, 12, 13, 14, 15, 16, 17. ~50 ms each, peak gain 0.12. Same as the prior round.
+2. **Post-target urgency loop** — when `elapsedQuestionMs` first crosses `perQuestionTargetMs`, a randomly-picked MP3 from the session-start bank pick begins looping (`source.loop = true`, peak gain ~0.8). The loop's first second of playback is the new "you've hit target" signal, replacing the synth dong.
 
-The pedagogical contract stays the same: silence in the first window of the question (0 to per-question target), continuous escalating audio after the target until the user advances. The escalation is now "the same loop keeps playing" rather than "tick → dong → harsher tick."
+The loop stops on item advance via a cleanup-on-`currentItem.id`-change effect — uniformly handles every advance path (Submit click, Space-triage take, click-triage take, server-end). The same file plays for every question in the session; a hard refresh re-picks.
+
+Pedagogical contract: silence in the first half of the question (0 to half-target), ticks in the second half (half-target to target), looped sample from target until advance.
 
 ### Bank of sounds
 
-Curated MP3 files live at `data/sounds/`. The directory is the source of truth — adding a new file extends the random pool without code changes.
-
-The plan does NOT specify which sounds belong in the bank. Leo curates the files; the implementer just enumerates the directory at runtime. Suggested initial bank: 3-5 short loopable samples (5-15 seconds each) ranging from "moderately annoying" (e.g., a clock-tick at uncomfortable speed) to "actively unpleasant" (e.g., a warning klaxon). The randomization gives the user variety across sessions; the curation gives Leo control over the upper bound of unpleasantness.
+Curated MP3 files live at `data/sounds/` (top-level files only — subdirectories like `success/`, `failure/`, `ticks/` are NOT enumerated by the manifest generator). The directory is the source of truth: adding a top-level `*.mp3` extends the random pool without code changes.
 
 File requirements:
-- MP3 format (`*.mp3`). Browsers all decode it; OGG would also work but MP3 is the most universal choice.
-- Designed to loop cleanly (no abrupt start or end click). The implementer doesn't need to verify this — Leo curates.
-- Reasonably small. ~50-300 KB per file at moderate bitrate is fine; the browser caches after first decode so repeat playback within a session is free.
-- No license-restricted samples. Each file in `data/sounds/` should have a CC0 / public-domain or owned-content provenance documented in `data/sounds/LICENSE.md`.
+- MP3 format (`*.mp3`). Browsers all decode it.
+- Designed to loop cleanly (no abrupt start or end click). Curator's responsibility.
+- Reasonably small. ~50–300 KB at moderate bitrate is fine; the browser caches after first decode.
+- Provenance must be CC0 / public-domain or owned-content. (The placeholder `LICENSE.md` Claude Code added during commit 2 was deleted in commit 2.6 — the curator tracks provenance separately.)
 
-### Implementation seam
+### Implementation surface
 
-Three files touched.
+Three files (plus the build-time copy script):
 
-**`scripts/copy-sounds-to-public.ts`** (NEW, or alternatively a build-time step in an existing script): copies `data/sounds/*.mp3` → `public/audio/sounds/*.mp3` so the browser can fetch them. Two reasons not to put the source files directly in `public/`:
+- **`scripts/copy-sounds-to-public.ts`** — Bun script (EXEMPT from project ruleset). Reads `data/sounds/*.mp3`, copies into `public/audio/sounds/`, and emits `src/config/sound-bank.ts` exporting `SOUND_BANK_URLS: readonly string[]`. Hooked into `package.json`'s `predev` and `prebuild` lifecycle. The generated manifest file is checked into git so first-start has it on hand.
+- **`src/components/focus-shell/audio-ticker.ts`** — exports `unlockAudio` (creates AudioContext + picks bank URL + fetches/decodes buffer; called from option-select / Submit / Space-triage handlers), `playTick` (synth pre-target tick), `startUrgencyLoop` (post-target sample loop start), `stopUrgencyLoop` (loop stop). Each successful play emits a `window.CustomEvent('audio-ticker', { detail: { kind, ... } })` for harness instrumentation; `kind ∈ { "tick", "urgency-loop-start", "urgency-loop-stop" }`.
+- **`src/components/focus-shell/focus-shell.tsx`** — three effects driving the audio:
+  - **Pre-target tick effect**: cross-second detection via a `useRef`-tracked previous integer-second value. Fires `playTick()` for every `s` where `halfSec < s < targetSec`. Reset on item advance.
+  - **Loop-start effect**: fires when `elapsedQuestionMs >= perQuestionTargetMs` AND `urgencyLoopStartedForCurrentQuestion: false`. Calls `startUrgencyLoop()` and dispatches `urgency_loop_started`.
+  - **Loop-stop effect**: cleanup-on-`currentItem.id`-change calls `stopUrgencyLoop()`. Uniform across all advance paths.
 
-- `data/` is the project's convention for human-curated assets (matches `data/testbank/` for OCR sources).
-- Copying lets a future `data/sounds/` rename or restructure not break the public URL.
+### Reducer state
 
-If the project already has an asset-copy mechanism, hook into it. Otherwise a simple copy-on-`bun dev` and copy-on-`bun build` script works. The script is exempt from the Superbuilder ruleset (Bun script).
-
-**`src/components/focus-shell/audio-ticker.ts`** (REWRITTEN, not extended): collapse the existing pre-dong tick + dong synth code. New exports:
-
-- `unlockAudio()` — same as today; creates the AudioContext on first user interaction. Also fetches and decodes the chosen sound file's `AudioBuffer` (see below).
-- `pickSessionSound(): string` — runs once per session at unlock time. Reads a manifest of available sounds (either fetched from a `/api/audio/sounds-manifest` route, or hardcoded in a `src/config/sound-bank.ts` file generated at build time from `data/sounds/`). Picks one path uniformly at random. Returns the `/audio/sounds/<filename>.mp3` URL.
-- `startUrgencyLoop()` — creates an `AudioBufferSourceNode` from the cached buffer with `loop = true`, connects through a `GainNode` (peak gain ~0.7-0.85, set once per session, no envelope), starts at `currentTime`. Stores the source node in a module-level ref so `stopUrgencyLoop` can stop it.
-- `stopUrgencyLoop()` — calls `.stop()` on the active source node, clears the ref. Safe to call when no loop is active (no-op).
-
-Drop the old `playTick`, `playDong`, and any pre-dong-tick / cross-second-detection logic. CustomEvent dispatch survives but with a simplified shape: `kind: "urgency-loop-start"` and `kind: "urgency-loop-stop"` events at the corresponding lifecycle points, for harness instrumentation.
-
-The session-sound-pick logic happens once per AudioContext creation. The same file URL lives in module state for the lifetime of the page; a hard refresh starts a new session and re-picks.
-
-**`src/components/focus-shell/focus-shell.tsx`** (SIMPLIFIED): the existing `maybePlayAudio` effect (around line 246) shrinks dramatically. Replace the cross-second detection loop with two effects:
-
-- **Start effect**: fires when `elapsedQuestionMs >= perQuestionTargetMs` AND `urgencyLoopStartedForCurrentQuestion: false`. Calls `startUrgencyLoop()` then sets the flag (via a new reducer action — see below).
-- **Stop effect**: fires on `advance` (specifically, on `currentItem.id` change in a `useEffect`). Calls `stopUrgencyLoop()` then resets the flag.
-
-`unlockAudio()` continues to be wired into the existing user-interaction handlers (option select, Submit, Space-triage). It's unchanged in trigger; only the work it does on first call expands (now also decodes the chosen sound).
-
-### Reducer / state changes
-
-One new field in `ShellState`:
+One added field in `ShellState`:
 
 ```
 urgencyLoopStartedForCurrentQuestion: boolean
 ```
 
-Initial value: `false`. Reset to `false` in `reduceAdvance` (the existing audio-flag-reset pattern). One new action variant:
+Initial value: `false`. Reset to `false` in `reduceAdvance` (mirrors the existing audio-flag-reset pattern). One added action variant `{ kind: "urgency_loop_started" }`; idempotent set-true via `dispatchSecondary`.
 
-```
-| { kind: "urgency_loop_started" }
-```
+The pre-existing `dongPlayedForCurrentQuestion` field is removed (the synth dong was permanently dropped); pre-target ticks use refs only, no reducer state.
 
-Reducer handler: sets `urgencyLoopStartedForCurrentQuestion: true`. Idempotent — second dispatch is a no-op.
+### Verification scenarios (delivered)
 
-The existing `dongPlayedForCurrentQuestion` field becomes unused after this commit. Remove it from `ShellState`, drop the `dong_played` action variant. The cleanup is part of the same commit.
+Run on the smoke route at `/phase3-smoke?qt=true`. All scenarios passed during the round (commits 2 and 2.5).
 
-### Verification scenarios
+1. **Loop starts at target.** `urgency-loop-start` fires within ~100 ms of `elapsedQuestionMs` crossing `perQuestionTargetMs`. AudioBufferSourceNode has `loop === true`.
+2. **Loop stops on advance.** `urgency-loop-stop` fires within ~500 ms of Submit click.
+3. **Same file across questions.** Two consecutive `urgency-loop-start` events (Q1 and Q2 of the same session) carry identical `detail.url`.
+4. **Different files across sessions.** 5 hard-refreshed sessions produce ≥ 2 distinct URLs.
+5. **Silent with `?qt=false`.** Both ticks AND loop-start are silent for the entire question.
+6. **Silent before first interaction.** With no clicks, no audio events fire — AudioContext is never created; calls return silently.
+7. **Triage take stops the loop.** Pressing Space at the triage prompt fires exactly one `urgency-loop-stop`.
+8. **Q2 loop fires only after Q2's target.** No loop-start on Q2 until Q2's `elapsedQuestionMs` crosses `perQuestionTargetMs`.
+9. **Pre-target ticks at seconds 10–17.** 8 `tick` CustomEvents at integer-second elapsed values [10, 11, 12, 13, 14, 15, 16, 17]. Anchored on animation-clock, not harness wall-clock — see §6.14.3 of SPEC.
+10. **Second 18 is loop-start, not tick.** Tick absent at elapsed=18s; loop-start present at the same moment. Clean handoff.
+11. **No ticks after target.** Zero tick events with `elapsedQuestionMs >= 18000` over a 25-second observation window.
 
-Run all scenarios on the smoke route with `?qt=true` (per-question timer enabled, the precondition for audio).
-
-1. **Loop starts at target.** Wait for `elapsedQuestionMs` to cross `perQuestionTargetMs` (18s wall, or fast-forwarded via existing test affordances). Assert exactly one `urgency-loop-start` CustomEvent fires within 100ms of the crossing. Assert the AudioBufferSourceNode created has `loop === true`. Assert the playing buffer's `byteLength` matches the session-picked file's expected size (verifies the right file was loaded, not a fallback).
-
-2. **Loop stops on advance.** With the loop running, click an option and Submit. Assert exactly one `urgency-loop-stop` CustomEvent fires within 100ms of the click. Assert the source node's `playbackState` is `FINISHED_STATE` (or equivalent — the Web Audio API doesn't expose state directly; verify via `onended` callback firing).
-
-3. **Same file across questions.** Complete question 1 by going past target then advancing. On question 2, again wait past target. Assert the URL fetched (or the AudioBuffer reference) is identical between the two `urgency-loop-start` events. The session pick is held; question 2 doesn't re-randomize.
-
-4. **Different file across sessions.** Hard-refresh the page (new AudioContext, new session pick). Wait past target on question 1. Capture the URL. Repeat 5 times across 5 sessions. Assert at least 2 distinct URLs were chosen (with 3+ files in the bank, this is statistically near-certain; if all 5 sessions pick the same file, the random pick is broken).
-
-5. **Quiet when timer hidden.** Navigate to `?qt=false`. Cross the per-question target. Assert zero `urgency-loop-start` events. The loop is gated on `timerPrefs.questionTimerVisible` the same way the old dong was.
-
-6. **Quiet before first interaction.** Drive the timer past target without clicking anything (no `unlockAudio` invoked). Assert zero loop-start events. AudioContext autoplay policy is honored — silent failure is the correct behavior.
-
-7. **Triage take stops the loop.** Cross the target so the loop is running. Take the triage prompt (Space or click). Assert one `urgency-loop-stop` event fires (advance triggered by the take). This regression-protects against the loop continuing past triage take, which would be a worse UX than the current silence.
-
-8. **Loop resumes on next question's target crossing, not before.** After question 1 advances, on question 2 wait until t=10s (well before the 18s target). Assert no loop-start event has fired yet. Wait until t=19s. Assert loop-start fires once.
-
-## 4. (Removed in v2)
-
-Item 3 of v1 (post-dong tick distinctness) and item 4 of v1 (volume bumps across the board) are absorbed into §3. The audio model is now one rule, not three. The numbered items in this plan track the user's original prompt's enumeration; in v2, items 2-4 share §3 as a single audio commit.
-
-## 5. (Removed in v2)
-
-See §4. v1 had this as item 4 (volume bumps); v2 absorbs into §3.
-
-## 6. Item 5 — Two stacked per-question timer bars with phase-keyed colors (FEATURE — significant)
+## 4. Item 5 — Two stacked per-question timer bars with phase-keyed colors (FEATURE — significant)
 
 ### What's missing
 
@@ -316,7 +268,7 @@ Mouse movement to (10, 10) before each measurement to clear hover state, per the
 
 Color-flip verification specifically: capture at t=8990ms and t=9010ms (40ms apart, straddling the half-target boundary). Assert primary's visible color is blue at t=8990 and red at t=9010. The 20ms tolerance window accounts for animation interpolation.
 
-## 7. Item 6 — Question progression bar color-keyed to pace deficit (FEATURE)
+## 5. Item 6 — Question progression bar color-keyed to pace deficit (FEATURE)
 
 ### What's missing
 
@@ -387,61 +339,70 @@ Drive the smoke route with three scripted scenarios:
 
 Note: scenarios 1-3 above use `currentQuestionIndex` which is the index of the *current* question (0-based). On question 1 of 5, currentQuestionIndex = 0, questions ratio = 0. The behind-pace condition `time > 0` is always true the moment any time has elapsed on question 1 — meaning the bar is red from the very start of every drill. This is consistent with the user's spec (Q2 of 50 at 10/15 min has questions ratio 1/50 = 0.02; the user computes the ratio based on the current question's index).
 
-Worth flagging: if the user wants the bar to be blue at the start of question 1 (when "0% through" both axes is on-pace by intuition), the threshold should use `currentQuestionIndex + 1` instead of `currentQuestionIndex` for the questions-ratio side. As specified in the prompt, current rule is `currentQuestionIndex / targetQuestionCount`, which makes Q1 always start red. Confirm with the user before implementation; this is an open question (see §11).
+Worth flagging: if the user wants the bar to be blue at the start of question 1 (when "0% through" both axes is on-pace by intuition), the threshold should use `currentQuestionIndex + 1` instead of `currentQuestionIndex` for the questions-ratio side. As specified in the prompt, current rule is `currentQuestionIndex / targetQuestionCount`, which makes Q1 always start red. **Resolved during implementation (see §9): use `currentQuestionIndex` as written. Q1 starts red the moment any time elapses; that's intentional, not a regression.**
 
-## 8. Sequencing and commits
+## 6. Sequencing and commits — what shipped
 
-Five commits, in order:
+Seven commits, in order. Numbered with `.5` and `.6` suffixes where the original five-commit plan grew during implementation; the suffixes are preserved in the git history so the audio walkback (commit 2 → 2.5) and the placeholder cleanup (commit 2.6) read as a coherent in-flight design adjustment rather than retconned single commits.
 
-1. **`fix(focus-shell): reset interactivity state on advance after triage take`** — item 1. Reducer-only change (`reduceAdvance` adds `submitPending: false` reset) plus `pointer-events-none` on `<InterQuestionCard>`. Optional `useLayoutEffect` for `syncStateRef`. Verification: regression test that drives a triage-take advance and asserts the next item's option-click registers.
-2. **`feat(focus-shell): replace tick/dong audio with random session-picked looping sample`** — items 2-4 collapsed. Adds `data/sounds/` directory + `data/sounds/LICENSE.md` (Leo curates the actual sound files separately; the commit can land with an empty bank and the implementer adds 1-2 placeholder samples for verification). Adds `scripts/copy-sounds-to-public.ts` (or hooks into existing asset-copy). Rewrites `audio-ticker.ts` with `pickSessionSound`, `startUrgencyLoop`, `stopUrgencyLoop`. Simplifies `focus-shell.tsx`'s `maybePlayAudio` effect to start/stop on target-cross and advance. New `urgencyLoopStartedForCurrentQuestion` flag in `ShellState`. Removes `dongPlayedForCurrentQuestion` and the `dong_played` action variant.
-3. **`feat(focus-shell): split per-question timer bar into stacked primary+overflow bars with phase-keyed primary fill`** — item 5. New `<QuestionTimerBarStack>` wrapper, renamed `<QuestionTimerBarPrimary>`, new `<QuestionTimerBarOverflow>`. Two new keyframes in `globals.css`. `<FocusShell>` import swap. Largest commit in the round.
-4. **`feat(focus-shell): color-key question progression bar to pace deficit`** — item 6. New `behindPace` prop on `<QuestionProgressionBar>`, computation in `<FocusShell>`. Smallest feature commit.
-5. **`docs: update SPEC §6 and architecture_plan for post-overhaul fixes`** — wrap-up doc commit. SPEC §6.6 grows a row for the overflow bar; SPEC §6.12 (audio cues) is rewritten around the urgency-loop model (replacing the old tick/dong description); SPEC §6's bar-color discussion gets a paragraph on pace-keying. `architecture_plan.md`'s focus-shell paragraph picks up the dual-bar and pace-keyed rendering in one sentence each, plus a one-line note about the random session-picked loop.
+1. **Commit 1 — `fix(focus-shell): reset interactivity state on advance after triage take`** (`4eff72c`). `reduceAdvance` adds `submitPending: false`, `<InterQuestionCard>` gets `pointer-events-none`, `syncStateRef` switches to `useLayoutEffect`. Diagnostic finding: the actual root cause was candidate #4 from §2 (server returns the same `nextItem.id`), not #1. The plan-recommended fixes still apply as defense-in-depth and end up masking the server-side bug — see §8.
+2. **Commit 2 — `feat(focus-shell): replace tick/dong audio with random session-picked looping sample`** (`07ae25b`). First audio commit. Drops `playTick`, `playDong`, the per-second cross-detection. Introduces `unlockAudio` + `pickSessionSound` + `startUrgencyLoop` + `stopUrgencyLoop`. Adds `data/sounds/` + `scripts/copy-sounds-to-public.ts` + the generated `src/config/sound-bank.ts` manifest. Removes `dongPlayedForCurrentQuestion`; adds `urgencyLoopStartedForCurrentQuestion`.
+3. **Commit 2.5 — `feat(focus-shell): restore pre-target synth ticks; loop only fires post-target`** (`af9a088`). Audio walkback. `playTick` is restored alongside the urgency loop. The synth dong stays gone (the loop's first second of playback replaces it). The result is the hybrid model documented in §3. Committing this as a separate step (rather than amending commit 2) preserves the design-decision history.
+4. **Commit 2.6 — `chore(focus-shell): remove placeholder sound files; let real bank stand alone`** (`67942e3`). Cleanup. Deletes the two CC0 placeholder MP3s + their `LICENSE.md` that commit 2 added for end-to-end verification. The user has their own curated bank; the placeholders are dead weight.
+5. **Commit 3 — `feat(focus-shell): split per-question timer bar into stacked primary+overflow bars with phase-keyed primary fill`** (`fae3501`). New `<QuestionTimerBarStack>` wrapper, renamed-and-refactored `<QuestionTimerBarPrimary>` (two stacked layers with a discrete opacity flip at half-target), new `<QuestionTimerBarOverflow>`. Three new keyframe / utility variables in `globals.css`. Surfaced two Tailwind v4 footguns documented in SPEC §6.14.2. Followed by a small fix (`9bd90e7`) that gave the two primary-bar fill layers distinct keys after the React duplicate-key warning surfaced in dogfooding.
+6. **Commit 4 — `feat(focus-shell): color-key question progression bar to pace deficit`** (`906c167`). New `behindPace` prop on `<QuestionProgressionBar>`, computation in `<FocusShell>`. Smallest feature commit; per §9 resolution 1, Q1 starts red intentionally.
+7. **Commit 5 — `docs: update SPEC §6 and architecture_plan for post-overhaul fixes`** (this commit). SPEC §6.6 grows the timer-bar split, the progression-bar pace-color, and the two-reds-coexist paragraph. SPEC §6.12 is rewritten around the hybrid model. SPEC §6.14 is new (implementation notes for contributors capturing the five learned-the-hard-way items). `architecture_plan.md`'s focus-shell paragraph gains three sentences. This plan is rewritten to match delivered behavior.
 
-Each commit lands lint-clean, typecheck-clean, and verification-pass. No commit blocks on a later commit's work.
+Each commit lands lint-clean, typecheck-clean, and verification-pass.
 
-## 9. Verification protocol carry-forward
+## 7. Verification protocol carry-forward
 
-Established discipline from commits 1-7 carries forward unchanged:
+Established discipline from the prior overhaul round (commits 1–7 of `docs/plans/phase-3-polish-practice-surface-features.md`) carries forward and was used unchanged across this round:
 
-- `playwright-core` directly with `page.screenshot({ timeout: 30_000 })`. No MCP `browser_take_screenshot` calls (the MCP tool's hardcoded 5s timeout has bitten this protocol once already).
+- `playwright-core` directly with `page.screenshot({ timeout: 30_000 })`. No MCP `browser_take_screenshot` calls.
 - `page.mouse.move(10, 10)` before any post-click `getComputedStyle` measurement, to clear hover state.
-- Multi-sample timing measurements for animated bars — multiple time points across the animation curve, not single snapshots. The dual-bar item especially needs this; a single sample at t=18s would miss the color flip.
-- CustomEvent dispatch from new audio paths for harness instrumentation. The new event kinds (`urgency-loop-start`, `urgency-loop-stop`) replace the old `tick` / `dong` / `post-dong-tick` triple.
-- Real-DB harness for any item that touches the server-action path. Item 1 needs a real drill (not the smoke route's stub `onSubmitAttempt`) because the bug is on the post-network-roundtrip path. Items 2-6 can use the smoke route since they don't depend on server behavior.
-- For the bug fix specifically: a regression test that drives a triage-take advance and asserts the next item's option-click registers a state change. Run on `main` BEFORE the fix to confirm the harness reproduces the bug; run again after to confirm the fix.
+- Multi-sample timing measurements for animated bars — multiple time points across the animation curve.
+- CustomEvent dispatch from new audio paths for harness instrumentation. Event kinds in the round: `tick`, `urgency-loop-start`, `urgency-loop-stop`.
+- Real-DB harness for items that touch the server-action path. Item 1 needed a real drill (not the smoke route's stub `onSubmitAttempt`) because the bug is on the post-network-roundtrip path.
+- For the bug fix specifically: a regression test that drives a triage-take advance and asserts the next item's option-click registers a state change. Negative control on `main` BEFORE the fix; positive on the fix branch.
 
-The harness scaffolding from commit 7 (`/tmp/c7-harness.ts.bak`, the auth-cookie-injection helper) is reusable — copy into a new throwaway script under `scripts/_*-harness.ts`, run, then move out of the project tree before commit so `tsgo` doesn't complain about per-harness type errors.
+Two additions surfaced during this round and are recorded for future use:
 
-## 10. Out of scope
+- **Animation-time anchoring** (SPEC §6.14.3): when verifying CSS keyframes with sub-second precision, sample on `element.getAnimations()[0].currentTime` rather than harness wall-clock. Removes 150–300 ms of harness-vs-animation skew.
+- **Headless Chromium autoplay policy** (SPEC §6.14.4): AudioContext requires both `--autoplay-policy=no-user-gesture-required` AND a real `page.click()` (NOT programmatic `.click()`) to reach `state === "running"`. Production clicks satisfy this naturally; harness-only consideration.
 
-Explicit list — anything below stays untouched in this round:
+Throwaway harness scripts under `scripts/_<commit>-harness.ts` are moved out of the project tree before commit so `tsgo` doesn't include them in typecheck.
 
-- Changes to the triage prompt's content or rendering. The prompt fires correctly; only post-take state-reset is broken.
-- Changes to `sessionDurationMs` semantics or the auto-redirect from commit 7.
+## 8. Out of scope
+
+Explicit list — items deliberately not addressed in this round:
+
+- Changes to the triage prompt's content or rendering. The prompt fires correctly; only post-take state-reset was broken.
+- Changes to `sessionDurationMs` semantics or the auto-redirect from the prior round's commit 7.
 - Changes to the diagnostic flow (the `sessionDurationMs === null` exemption flows through unchanged).
 - New audio for non-question events (session-end, item-correct, etc.).
-- Changes to the question text or option text typography (commit 8 ended that thread).
+- Changes to question / option text typography (the prior round's commit 8 ended that thread).
 - A "behind pace" warning beyond the progression-bar color — no toast, no banner, no overlay.
 - A configurable per-question target. 18s stays the v1 target; 12s for speed-ramp stays untouched.
 - The vestigial `paceTrackVisible` prop on `FocusShellProps`. Still unread; remove in a future cleanup commit, not here.
-- **Per-user audio preferences** (e.g., a user toggle for "skip the urgency loop"). The existing `timerPrefs.questionTimerVisible` toggle gates the loop the same way it gated the old dong; no separate audio toggle ships in v2.
-- **Sound bank curation as part of the implementation commit.** Leo curates `data/sounds/` separately. Commit 2 lands with placeholder samples (1-2 short test files) that exercise the random-pick path. Replacement of placeholders with curated content is a follow-up edit Leo handles.
-- **Pre-dong audio of any kind.** v2 deliberately removes the pre-dong tick. The only audio in the focus shell is the urgency loop that fires after the per-question target. Reintroducing a pre-target cue is a separate future decision.
+- **Per-user audio preferences** (e.g., a user toggle for "skip the urgency loop"). The existing `timerPrefs.questionTimerVisible` toggle gates both ticks and the loop in lockstep; no separate audio toggle ships in this round.
+- **Audio volume tuning beyond the shipped values.** Pre-target tick peak gain stayed at the prior-round value (0.12); the urgency-loop sample gain is 0.8. Both are tunable in `src/components/focus-shell/audio-ticker.ts` if dogfooding surfaces audibility issues; that's a one-line change, not a structural concern.
 
-Things noted during drafting that are out of scope for this plan but worth recording:
+### Server-side follow-up filed for separate investigation
 
-- **SPEC §6.2's `ShellState` / `ShellAction` shapes are still stale** (referenced in commit 5's commit message). They don't reflect `submitPending`, `urgencyLoopStartedForCurrentQuestion`, or `sessionEnded`. Refresh belongs in a separate doc-only commit with the §6.8 keyboard-shortcut and §6.10 diagnostic-overtime cleanups.
-- **SPEC §6.10 diagnostic-overtime-note text describes machinery that was removed** in the polish-plan; the §6.7 cross-reference from commit 5 currently points at obsolete text. Same separate doc commit.
-- **The `<TriagePrompt>` overlay's `z-50` and the `<InterQuestionCard>`'s implicit z-auto could collide** in unusual stack contexts (e.g., a future modal on top of the focus shell). Not a current bug; flag for whoever introduces such a modal.
-- **Two reds in the chrome row** — the session timer bar's red fill (absolute time elapsed) and the progression bar's red fill (pace deficit) — coexist intentionally. Same red token, different signals. Worth flagging in the SPEC §6 doc commit so future eyes don't read it as visual confusion.
+- **`getNextUniformBand`'s session-soft fallback can re-serve session-attempted items.** When a sub-type's bank is small (e.g., the seeded `numerical.fractions` bank with 5 items), the recency + session-exclusion chain can exhaust uniqueness and the server returns `nextItem.id === currentItem.id`. The focus shell now masks this client-side via the `submitPending: false` clear in `reduceAdvance` (commit 1) — the user is unblocked even when the same item is re-served. The server-side aspect remains a real bug worth investigating: the fallback chain in `src/server/items/selection.ts` should either prefer items not yet attempted in this session (more aggressive uniqueness within the recency window) OR surface a UI hint when the user is being shown a duplicate item. **Filed as a separate concern, not part of this round.**
 
-## 11. Open questions for Leo
+### Doc drift accepted (separate doc-only commit)
 
-Questions that surfaced during drafting and need a decision before implementation:
+- **SPEC §6.2's `ShellState` / `ShellAction` shapes are still stale.** They don't reflect `submitPending`, `urgencyLoopStartedForCurrentQuestion`, or `sessionEnded`. Refresh belongs in a separate doc-only commit alongside the §6.8 keyboard-shortcut and §6.10 diagnostic-overtime cleanups.
+- **SPEC §6.10 diagnostic-overtime-note text describes machinery that was removed** in the prior round; the §6.7 cross-reference still points at obsolete text. Same separate doc commit.
+- **`<TriagePrompt>`'s `z-50` and `<InterQuestionCard>`'s implicit z-auto could collide** in unusual stack contexts (e.g., a future modal on top of the focus shell). Not a current bug; flag for whoever introduces such a modal.
 
-1. **Item 6's threshold semantics on question 1.** As specified, `currentQuestionIndex / targetQuestionCount` is `0 / 5 = 0` on question 1 of 5, so any elapsed time triggers behind-pace red from t=0+. Is this the intended behavior? The user's worked examples (Q2 of 50, Q49 of 50) both use the index-based ratio and accept this semantics. If the user wants Q1 to start blue, the questions ratio should be `(currentQuestionIndex + 1) / targetQuestionCount` instead — same threshold logic, off-by-one shift.
-2. **Sound-bank initial seed.** When commit 2 lands, the implementer needs at least one MP3 file in `data/sounds/` to verify the random-pick path works. Two options: (a) Leo provides 1-2 starter files before the commit, OR (b) the implementer generates a placeholder via a free CC0 sample (e.g., a generic "tick" sound from freesound.org), commits it with a note in `data/sounds/LICENSE.md`, and Leo replaces it post-commit with the real curated bank. Which path?
-3. **Sound-manifest discovery mechanism.** Two options: (a) a build-time-generated `src/config/sound-bank.ts` whose contents are derived from `data/sounds/*.mp3` at build, OR (b) a runtime fetch to a `/api/audio/sounds-manifest` endpoint that lists files in `public/audio/sounds/`. Option (a) is simpler and ships zero runtime API surface; option (b) lets the bank be updated without redeploy. v2's plan defaults to (a) — confirm.
-4. **Item 1's `useLayoutEffect` for `stateRef` sync.** The candidate-#3 mitigation is cheap to apply preemptively but technically out of scope if candidate #3 doesn't reproduce. Apply it always (defense-in-depth) or skip unless reproduced?
+## 9. Resolutions of open questions
+
+Four questions surfaced during drafting; all four were resolved during implementation. The answers are folded into the §2–§5 design sections; recorded here for traceability.
+
+1. **Item 6 (§5)'s threshold semantics on question 1.** **Resolution:** use `currentQuestionIndex / targetQuestionCount` as written (no `+1` shift). Q1 starts red the moment any time elapses; that's intentional. Switching to `(currentQuestionIndex + 1) / N` would invert the semantics for every other question — Q49 of 50 at the late-session edge would suddenly read as behind. The §11.1-style worked examples in the original prompt rely on the index-based ratio; honoring those keeps the semantics consistent end-to-end.
+2. **Sound-bank initial seed.** **Resolution:** path (b) during implementation. Commit 2 added two CC0 / public-domain MP3s sourced from Wikimedia Commons (`File:LA2_kitchen_clock.ogg` and `File:Old_school_bell_1.ogg`, trimmed and re-encoded via ffmpeg) plus a `data/sounds/LICENSE.md` documenting their provenance. Commit 2.6 then deleted them once Leo's curated bank was in place. The intermediate step exercised the random-pick + decode + playback path end-to-end.
+3. **Sound-manifest discovery mechanism.** **Resolution:** path (a). `scripts/copy-sounds-to-public.ts` runs at `predev` / `prebuild` time, copies top-level `data/sounds/*.mp3` into `public/audio/sounds/`, and emits `src/config/sound-bank.ts` exporting `SOUND_BANK_URLS: readonly string[]`. The generated manifest is checked into git so first-start has it on hand. Subdirectories under `data/sounds/` (`success/`, `failure/`, `ticks/`, `almost/`) are deliberately NOT enumerated; the bank is top-level files only.
+4. **Item 1's `useLayoutEffect` for `stateRef` sync.** **Resolution:** apply preemptively. One-character change with no risk profile (the ref is read only by event handlers, never during render). Defense-in-depth across the candidate-#3 stale-state window. Shipped in commit 1.
