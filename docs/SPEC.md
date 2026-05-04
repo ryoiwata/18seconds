@@ -1176,6 +1176,30 @@ When verifying UI that surfaces during a brief race window (e.g., the empty-stat
 
 The tradeoff is "reproducing the production race precisely" for "verifying the rendered behavior reliably." Document the tradeoff in the smoke header so a future contributor reading the test understands the gap. This pattern generalizes — any future race-window UI (e.g., review-queue empty state, drill-completion-vs-mastery-recompute window) should follow the same shape.
 
+#### 6.14.11 Audit-tighter-than-contract pattern (audit-and-polish rounds)
+
+Plans for audit-and-polish rounds (sub-phase 2 onward, where the underlying scaffolding shipped in a prior round) often write verification scenarios that are tighter than the engine's actual contracts. The audit's job includes catching this drift BEFORE verification fires false-positive failures and pushes the round toward unwarranted "fix" work. Two examples surfaced in the sub-phase 3 audit (`docs/plans/phase3-drill-mode.md`):
+
+- The plan's scenario 8 said "all served tiers in a uniform_band drill must be identical." The actual contract (§9.2) is on REQUESTED tier; served tier can degrade via the documented tier-degraded fallback when banks exhaust.
+- The plan's scenario 10 said "drill served items must respect recency exclusion." The actual contract is that recency is a SOFT preference; session-soft fallback can override it on small banks.
+
+When the audit script's first run fails, **inspect the engine's documented contract before rewriting the engine to match the test**. The fix is usually to tighten or relax the test's assertion to match the contract — both directions are possible, and which one applies is what the audit determines. This pattern saves a round from spuriously expanding into "fix the engine to satisfy the plan's verification" when the engine was correct to begin with.
+
+#### 6.14.12 Auth-state verification via DB inspection
+
+For auth-related verification (sign-in, sign-out, session-expiry handling), check the underlying state — the `auth_sessions` row's presence/absence, the session cookie validity, the `users.last_seen_at_ms` if relevant — rather than just URL transitions. URL changes can succeed while the underlying state remains broken (e.g., a logout flow that redirects the browser to `/login` but fails to actually delete the session row, leaving the user logged-in if they manually navigate back). The sign-out smoke (`scripts/dev/smoke/sign-out-button.ts`) verifies BOTH the URL landing (`finalUrl.includes("/login")`) AND the DB state (`SELECT FROM auth_sessions WHERE session_token = $1` returns zero rows post-logout). Either alone is insufficient.
+
+#### 6.14.13 Dev-vs-prod planner choice for hot-route queries
+
+A hot-route query whose EXPLAIN ANALYZE shows a Sequential Scan on the dev DB is **not automatically a verification failure** — the planner picks Seq Scan when the table is small enough that scanning beats index lookup. The example case is the drill configure page's live-item count (`SELECT count(*) FROM items WHERE sub_type_id = $1 AND status = 'live'`): on the dev DB's 55-row items table the planner picks Seq Scan; at production scale (thousands of items, hundreds per sub-type) the same query will use `items_sub_type_status_idx` for an Index Only Scan.
+
+**Do NOT coerce the dev planner via `set enable_seqscan = off`** to force the index path during verification. Coercion masks two real failure modes that production might surface:
+
+- The query shape may be ineligible for the index PG would otherwise use (e.g., a function on the indexed column, an unintended cast). Letting the planner pick freely on the dev DB and noting the Seq Scan choice is honest; the production-scale concern surfaces in code review of the query shape, not by hiding the dev plan.
+- The cost numbers reported under coerced settings aren't representative. Capturing the natural plan + execution time (the §6.14.7 convention) gives a real baseline; coerced numbers don't.
+
+The sub-phase 3 commit message for the empty-bank-pane query (commit `b5510af`) is the canonical example of how to document the scale-dependent plan choice: capture the dev EXPLAIN ANALYZE in the commit, note that production will use the index, and move on. If a future planner-stability concern surfaces, the commit message is the audit trail.
+
 ---
 
 ## 7. Server actions, route handlers, and workflows
@@ -1660,6 +1684,11 @@ Fallback chains within `getNextItem`:
 
 Each `attempts` row records both `served_at_tier` (what the engine intended) and `fallback_from_tier` (nullable; populated only when tier-degraded). `metadata_json.fallback_level` captures which fallback path fired: `'fresh' | 'session-soft' | 'recency-soft' | 'tier-degraded'`.
 
+**Two contract clarifications surfaced during the sub-phase 3 audit (and now load-bearing for any verification scenarios that touch drill selection):**
+
+- **The no-walking contract is on REQUESTED tier, not served tier.** uniform_band's strategy contract is "the requested tier stays constant across the drill — the engine doesn't adaptively shift its REQUEST based on user accuracy." The SERVED tier can still differ from the requested tier when the bank exhausts and the tier-degraded fallback fires. Reading `served_at_tier` alone overconstrains the contract; verification scenarios that assert "tier didn't walk" must derive the requested tier from `(fallbackFromTier ?? servedAtTier)` or equivalent (i.e., the requested tier IS the served tier when no fallback fired, otherwise it's whatever `fallbackFromTier` records).
+- **The recency-excluded set is a SOFT preference, not a hard guarantee.** When the fresh + recency-soft passes both exhaust under the per-session bank size, the session-soft fallback CAN serve a recency-excluded item at the requested tier rather than force the engine to throw `null`. `metadata_json.fallback_level === 'session-soft'` is the observable marker. Verification scenarios that assert "no recency-excluded item is served" must either (a) ensure the bank is large enough that fresh/recency-soft never exhaust, or (b) only assert against the FIRST item served (where session-soft fallback is structurally extreme).
+
 ### 9.3 Mastery state (PRD §2 "Mastery state")
 
 Pure function at `src/server/mastery/compute.ts` over the user's last 10 cross-session attempts on a sub-type:
@@ -1782,11 +1811,13 @@ A user can re-take the diagnostic from the History tab via "Retake diagnostic." 
 
 PRD §4.4.
 
-1. `/drill/[subTypeId]/page.tsx` is a configure page. Lists timer mode (`standard` / `speed-ramp` / `brutal`) and length (5 / 10 / 20). Defaults to the user's previous-session choice for this sub-type (derived from the most recent `practice_sessions` row matching `(user_id, sub_type_id)`); falls back to `standard` / 10 for first-time users on this sub-type. A "Start NarrowingRamp" primary button and a "Skip protocol" small text link.
-2. On submit, navigates to the NarrowingRamp (or directly to the FocusShell if skipped).
-3. After NarrowingRamp completes, `startSession({ type: "drill", subTypeId, timerMode, drillLength, ifThenPlan })` is invoked.
-4. `<FocusShell>` runs with `sessionDurationMs = drillLength * perQuestionTargetMs`. `perQuestionTargetMs` is 18000 for `standard`/`brutal`, 12000 for `speed_ramp`. `paceTrackVisible: true`.
-5. After the last submit (or brutal-drill end-early), `endSession` then `/post-session/[sessionId]` (no strategy-review gate).
+1. `/drill/[subTypeId]/page.tsx` is a configure page. Validates the route param against `subTypeIds`; on miss → `notFound()`. Pre-checks the sub-type's live-item count via `SELECT count(*) FROM items WHERE sub_type_id = $1 AND status = 'live'`. **If the count is zero, renders `<EmptyBankPane>` instead of the configure form** — heading "No questions available for {sub-type} yet.", body "Try a different sub-type from the Mastery Map.", single "Back to Mastery Map" CTA. The pane uses `data-testid="drill-empty-bank-pane"`. This handling replaces the prior fail-through to `startSession`'s `ErrFirstItemMissing` → Next.js error boundary, which gave users an unhelpful error for what's a known empty-bank case (e.g., `verbal.synonyms` while the testbank workstream is between stage-1 ingest and stage-2 explanation generation).
+2. With a populated bank, the configure page renders a length picker (5 / 10 / 20, default 10). **Phase 3 wires only `standard` timer mode** — `speed_ramp` and `brutal` ship in Phase 5; the configure page's timer-mode selector is correspondingly absent in Phase 3. The PRD §4.4 timer-mode-selection narrative applies to Phase 5+.
+3. Form submit `GET`s to `/drill/[subTypeId]/run?length=N`. The run page calls `startSession({ userId, type: "drill", subTypeId, timerMode: "standard", drillLength })`. **Phase 3 ships no NarrowingRamp** — `startSession` is invoked directly. PRD §5.3 NarrowingRamp ships in Phase 5.
+4. `<FocusShell>` runs with `sessionDurationMs = drillLength * 18000`, `perQuestionTargetMs: 18000`, `paceTrackVisible: true`. **Selection strategy is `'uniform_band'`** in Phase 3 (§9.2 deferred-adaptive note); the requested tier is constant across the drill, derived from `mastery_state` per §9.1's initial-tier table.
+5. After the last submit, `endSession` then `router.push("/")` — drills land on the Mastery Map directly, NOT through `/post-session/[sessionId]`. Drill post-session UI is Phase 5 (PRD §6.5).
+
+**Sign-out button.** The Mastery Map's header (top-right) renders `<SignOutButton>` for users not currently inside a session — see §10.1's flow paragraph. The button is deliberately absent from `/diagnostic/run` and `/drill/[subTypeId]/run` (the focus shell strips chrome to maintain session focus) and from the diagnostic explainer at `/diagnostic` (mid-flow surface). Visual treatment is `text-foreground/70` with a `hover:text-foreground` transition — distinct from the footer's low-contrast `<TriageAdherenceLine>` because sign-out is an ACTION, not a STATUS, and inheriting the periphery treatment would make it harder to find.
 
 The session-timer toggle does NOT live on the configure page — it's a focus-shell periphery control only.
 

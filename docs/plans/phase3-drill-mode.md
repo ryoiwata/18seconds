@@ -1,6 +1,15 @@
 # Plan — Phase 3, sub-phase 3: standard drill mode + logout button
 
-> **Status: planning, approved, not yet implemented.** This plan is the canonical reference for sub-phase 3 of Phase 3 (the standard drill mode round, plus the logout button as a folded-in small fix). It is the round that closes Phase 3's user-facing happy path: after sub-phase 1 (diagnostic flow) and sub-phase 2 (Mastery Map), the only Phase-3 surface a real user can hit but hasn't been audited under post-overhaul-fixes + post-sub-phase-1 state is the drill mode. Sub-phase 4 (heartbeat client + cron-runner wiring) follows this round; it is small enough to slot in as a mini-round whenever this lands.
+> **Status: shipped 2026-05-04.** The four-commit sequence below landed on `main` cleanly:
+>
+>   - Commit 1 — `969705e` — `docs(phase3): add drill-mode sub-phase 3 plan; revise feature-roadmap priorities`
+>   - Commit 2 — `b5510af` — `feat(drill-mode): empty-bank pane on configure page` (the audit findings folded into this commit's preamble per the plan's `if-clean-fold-in` path)
+>   - Commit 3 — `20948de` — `feat(auth): sign-out button on Mastery Map header`
+>   - Commit 4 — *this commit* — `docs: close phase3-drill-mode plan; SPEC §9.2 / §10.2 / §6.14 updates; plan corrections folded in`
+>
+> **Phase 3 user-facing surface is now complete end-to-end.** Sub-phase 1 + 2 + 3 ship the user happy path: sign-in → diagnostic → onboarding capture → Mastery Map (including post-diagnostic empty-state pane) → drill (including empty-bank pane) → completion → Mastery Map. Sign-out works. Sub-phase 4 (heartbeat client + cron-runner wiring) is the remaining mini-round; it doesn't change the user-facing surface, only tightens the resume window.
+>
+> This plan was the canonical reference for sub-phase 3 of Phase 3. The diagnostic flow (sub-phase 1) and Mastery Map (sub-phase 2) were treated as stable dependencies; their commits were not touched here. The audit-and-polish framing surfaced two SPEC-grounded plan corrections (§9.2 fallback contract: requested-not-served tier; recency soft-not-hard); both folded into commit 4's SPEC updates.
 
 The Mastery Map's primary CTA already pushes to `/drill/[subTypeId]`, so the destination exists and is reachable. Like sub-phase 2, this is **not a greenfield round** — the drill scaffolding shipped in commit `d722017` ("feat(app): Mastery Map + standard drill flow"), pre-sub-phase-1. The audit-and-polish framing carries forward.
 
