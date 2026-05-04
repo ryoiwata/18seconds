@@ -92,26 +92,44 @@ async function loadBuffer(ctx: AudioContext, url: string): Promise<void> {
 
 function unlockAudio(): void {
 	if (typeof window === "undefined") return
-	if (audioCtx !== undefined) return
 	if (typeof AudioContext === "undefined") return
-	const result = errors.trySync(function makeCtx() {
-		return new AudioContext()
-	})
-	if (result.error) {
-		logger.warn({ error: result.error }, "audio-ticker: AudioContext creation failed")
+	if (audioCtx === undefined) {
+		const result = errors.trySync(function makeCtx() {
+			return new AudioContext()
+		})
+		if (result.error) {
+			logger.warn({ error: result.error }, "audio-ticker: AudioContext creation failed")
+			return
+		}
+		audioCtx = result.data
+		const url = pickSessionSound()
+		if (url === undefined) return
+		// Fire-and-forget the buffer load. The startUrgencyLoop call will
+		// silently no-op if the buffer hasn't finished decoding by the time
+		// the per-question target fires (e.g., very fast first-question
+		// triage on a slow connection); the next question will catch up.
+		const ctx = audioCtx
+		loadBuffer(ctx, url).catch(function noop() {
+			// errors.try inside loadBuffer already logs; nothing to do here.
+		})
 		return
 	}
-	audioCtx = result.data
-	const url = pickSessionSound()
-	if (url === undefined) return
-	// Fire-and-forget the buffer load. The startUrgencyLoop call will
-	// silently no-op if the buffer hasn't finished decoding by the time
-	// the per-question target fires (e.g., very fast first-question
-	// triage on a slow connection); the next question will catch up.
-	const ctx = audioCtx
-	loadBuffer(ctx, url).catch(function noop() {
-		// errors.try inside loadBuffer already logs; nothing to do here.
-	})
+	// Existing context — resume if suspended. Browser autoplay policy
+	// can transition AudioContext.state to "suspended" when the tab is
+	// backgrounded or the system suspends audio; subsequent user
+	// interaction is the only path back to "running". Without this,
+	// playTick and startUrgencyLoop early-return on `state !== "running"`
+	// and the audio silently dies for the rest of the session even
+	// though the user is now actively interacting.
+	if (audioCtx.state === "suspended") {
+		const ctx = audioCtx
+		ctx.resume().catch(function noop() {
+			// resume() can reject if the context is closed or the browser
+			// policy is hostile. Silent failure is the contract — the
+			// caller's downstream play paths will early-return on
+			// state !== "running" and the rest of the UI keeps working.
+		})
+	}
 }
 
 function emitEvent(kind: "tick" | "urgency-loop-start" | "urgency-loop-stop", url?: string): void {

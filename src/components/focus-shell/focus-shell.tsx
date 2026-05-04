@@ -241,16 +241,21 @@ function FocusShell(props: FocusShellProps) {
 	// prevents double-starts within a question; the synth ticks use a
 	// useRef-tracked previous-integer-second value (no reducer state)
 	// to prevent double-fires within a render batch.
-	const currentItemId = state.currentItem.id
+	// Use `state.questionsRemaining` (NOT `state.currentItem.id`) as the
+	// per-question reset signal. The id can be re-served by the server
+	// when the recency / session-soft fallback chain exhausts uniqueness
+	// in a small bank — see SPEC §6.14.5. `questionsRemaining` decrements
+	// on EVERY advance regardless, so it's the more reliable trigger.
+	const questionsRemaining = state.questionsRemaining
 	const prevSecondRef = React.useRef<number>(-1)
 	React.useEffect(
 		function resetTickTrackingOnAdvance() {
-			// Reset the cross-second-detection ref on item swap so the
-			// next item's tick window starts fresh.
-			void currentItemId
+			// Reset the cross-second-detection ref on advance so the next
+			// item's tick window starts fresh from second 0.
+			void questionsRemaining
 			prevSecondRef.current = -1
 		},
-		[currentItemId]
+		[questionsRemaining]
 	)
 	React.useEffect(
 		function maybePlayPreTargetTicks() {
@@ -286,17 +291,20 @@ function FocusShell(props: FocusShellProps) {
 	)
 	React.useEffect(
 		function stopUrgencyLoopOnAdvance() {
-			// `void currentItemId` registers the dependency for biome's
-			// exhaustive-deps check; the effect's actual job is to stop
-			// the loop in the cleanup whenever the item swaps. Cleanup-
-			// on-id-change uniformly handles every advance path (Submit,
-			// Space-triage, click-triage, server-end).
-			void currentItemId
+			// Cleanup-on-questionsRemaining-change. Decrements on every
+			// advance regardless of whether the server returned the same
+			// item id (see SPEC §6.14.5 / "currentItemId vs
+			// questionsRemaining" rationale above). Stops the urgency
+			// loop uniformly across every advance path: Submit click,
+			// Space-triage take, click-triage take, server-end. The
+			// cleanup also fires on component unmount, which catches the
+			// "user navigated away mid-question" case.
+			void questionsRemaining
 			return function cleanup() {
 				stopUrgencyLoop()
 			}
 		},
-		[currentItemId]
+		[questionsRemaining]
 	)
 
 	const sessionDurationMs = props.sessionDurationMs
@@ -508,6 +516,13 @@ function FocusShell(props: FocusShellProps) {
 				visible={state.triagePromptFired}
 				ifThenPlan={props.ifThenPlan}
 				onTake={function takeTriage() {
+					// User interaction — unlock audio (idempotent). The
+					// click path through <TriagePrompt> didn't previously
+					// call unlock; without it, a triage take from a
+					// suspended-AudioContext state would never resume the
+					// context and subsequent ticks/loops would silently
+					// fail. The Space-key path already unlocks.
+					unlockAudio()
 					dispatch({ kind: "triage_take", nowMs: performance.now() })
 				}}
 			/>
