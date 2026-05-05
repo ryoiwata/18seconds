@@ -57,9 +57,8 @@ The PRD already specifies this: 50 questions in 15 minutes, real-test difficulty
 - Full-length-specific config in `src/config/diagnostic-mix.ts` (or a parallel `src/config/full-length-mix.ts`)
 - Route wiring for `/full-length/run` + post-session
 - Session timer = 15 minutes (vs. diagnostic's untimed)
-- 30-second strategy-review gate post-session per PRD §6.5
 
-**Scope estimate**: ~5-7 commits (audit Phase 5 scaffolding, mix config, route, session-engine wiring, post-session strategy gate, doc updates). Pattern matches sub-phase 1 (diagnostic flow).
+**Scope estimate**: ~3-4 commits (audit Phase 5 scaffolding, mix config, route, session-engine wiring, doc updates). Pattern matches sub-phase 1 (diagnostic flow). The 30-second strategy-review gate that PRD §6.5 specifies for full-length-only is cut from v1 — see "Cut from v1 2026-05-04".
 
 ---
 

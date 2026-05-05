@@ -63,6 +63,6 @@ Local development uses a `pgvector/pgvector:pg18` Docker container (Postgres 18 
 
 **Phase 4 — Generation pipeline (week 2, days 1–3).** Generator + validator + scorer + deployer + workflow + admin generation page. Vercel + RDS wired. First end-to-end candidate items land. Cost telemetry surfaces.
 
-**Phase 5 — Engine completeness (week 2, days 3–5).** Adaptive difficulty (drills) + spaced-repetition queue + review session + speed-ramp/brutal modes + question-timer toggle + NarrowingRamp + strategy review gate + full-length test.
+**Phase 5 — Engine completeness (week 2, days 3–5; v1 scope tightened 2026-05-04).** Adaptive difficulty (drills) + post-session review surface + click-to-highlight + dojo UI rename + belt indicator + full-length test (no strategy gate). Five surfaces from the original Phase-5 list cut from v1 — spaced-repetition queue + review session, the 30-second strategy-review gate, speed-ramp + brutal drill modes, the question-timer toggle (and the session-timer toggle alongside it), and the NarrowingRamp pre-session protocol. See `docs/plans/feature-roadmap.md` "Cut from v1 2026-05-04" for the cut rationale; `docs/plans/phase5-master-plan.md` for the five-sub-phase v1 carve.
 
 **Phase 6 — Polish & cuts (week 2, days 5–7).** Test-day simulation + history tab + candidate-promotion cron in shadow mode + account deletion. PRD §9 cuts apply if behind: simulation, history detail views, NarrowingRamp's visual-narrowing step. The mastery model, generation pipeline, focus shell, and Mastery Map are non-negotiable.
