@@ -171,11 +171,15 @@ The engine never serves the same item twice in a session. Across sessions, items
 
 ### 4.3 Spaced-repetition review queue
 
+> **Cut from v1 2026-05-04.** Section preserved as historical reference. See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04 for rationale. v1 ships adaptive difficulty per drill (§4.2) without a cross-session SM-2 ladder; review-queue resurfacing is deferred to a later round.
+
 Items the user got wrong (or got right but slowly, missing the mastery latency) enter a review queue. Items resurface at intervals: 1 day, 3 days, 7 days, 21 days. Use a simple SM-2 style schedule.
 
 A "review" session pulls only items currently due. Available from the Mastery Map as a single button when due items exist.
 
 ### 4.4 Drill modes
+
+> **Speed-ramp and Brutal drill modes cut from v1 2026-05-04.** Section preserved as historical reference. See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04 for rationale. v1 ships **Standard** drill mode only (18s/question, adaptive difficulty mix per §4.2). The "Brutal" *drill mode* (hard-only timer mode) is cut; the **Brutal difficulty tier** in the item bank (§2 Items) is unaffected and remains in v1 — the adaptive walker (§4.2) can still serve Brutal-tier items inside Standard drills.
 
 Per-sub-type drills support three timer modes:
 
@@ -198,6 +202,8 @@ Identical to the full-length practice test but with stricter UI: no pause button
 ## 5. Interface
 
 ### 5.1 The focus-mode shell
+
+> **Timer-toggles cut from v1 2026-05-04** (both question-timer toggle and session-timer toggle, per the user-facing toggle UI and per-user persistence). Section preserved as historical reference. See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04 for rationale. In v1, timer visibility is **static per session type**: session timer + pace track ON for full-length tests, simulations, drills, and the diagnostic; question timer OFF everywhere (the underlying 18-second elapsed-time tracking still drives the triage prompt — only the visible chronometer is hidden). The focus-mode shell itself is core to v1 and ships as specified below; only the toggle controls and the per-user-persisted visibility state are cut.
 
 Every practice session — diagnostic, drill, full-length test, and simulation — runs inside a shell with strict UI rules.
 
@@ -244,6 +250,8 @@ What's NOT on this screen: percentage progress, calendar view, multi-week roadma
 
 ### 5.3 NarrowingRamp (pre-session protocol)
 
+> **Cut from v1 2026-05-04.** Section preserved as historical reference. See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04 for rationale. v1 launches sessions directly from the Mastery Map start-session button without the 75-second pre-session protocol; the if-then-plan stored on the session, visual narrowing step, session brief, and launch countdown are all deferred. The mid-session if-then plan-trigger flash is also deferred — the generic triage prompt (§6.1) fires instead.
+
 An optional 75-second protocol that runs before any drill, full-length test, or simulation. The user can skip it via a small link, but it's the default flow. Not used before the diagnostic.
 
 **Sequence:**
@@ -278,6 +286,8 @@ Each triage event is logged on the attempt:
 The user's **triage score** = % of questions where the prompt fired AND the user took it. Surfaced in post-session review and on the Mastery Map (small, secondary).
 
 ### 6.2 Speed ramp drill mode
+
+> **Cut from v1 2026-05-04** (same feature as §4.4 speed-ramp drill mode). Section preserved as historical reference. See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04 for rationale.
 
 Already specified in section 4.4. Tighter timer (12s vs 18s) on easier items. The intent is to train above the target tempo so target tempo feels manageable.
 
@@ -316,6 +326,8 @@ After every session (drill, full-length test, simulation, diagnostic), the user 
 - Triage score for the session.
 - Any wrong items, browsable. Each shows the prompt, options, correct answer, explanation.
 - Surfaced strategies for sub-types where the user struggled.
+
+> **30-second strategy-review gate cut from v1 2026-05-04** (post-full-length only). Paragraph below preserved as historical reference. See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04 for rationale. In v1, the post-session review is dismissible immediately for **all** session types (drill, full-length, simulation, diagnostic). The rest of §6.5 (the post-session review surface itself — accuracy, latency, triage score, wrong items, surfaced strategies) remains in scope.
 
 After a full-length practice test only, an additional 30-second strategy-review prompt runs before the user can dismiss the screen. The system picks one strategy (paired with the question type the user struggled most with in the test) and displays it. The user must view it before "completing" the test in the system.
 
@@ -483,7 +495,9 @@ A 2-week build plan, in priority order.
 9. NarrowingRamp + score-to-target + post-session review.
 10. Strategy library + test-day simulation mode + history tab.
 
-**Cuts if behind:** test-day simulation, history tab detail views, NarrowingRamp's visual narrowing step (keep the obstacle scan and brief). The mastery model, generation pipeline, focus shell, and Mastery Map are non-negotiable.
+**Cuts if behind:** test-day simulation, history tab detail views. The mastery model, generation pipeline, focus shell, and Mastery Map are non-negotiable.
+
+> **2026-05-04 reconciliation.** The NarrowingRamp visual-narrowing clause was struck from this list because the entire NarrowingRamp protocol is now cut from v1 (see §5.3 marker). The original clause read: *"NarrowingRamp's visual narrowing step (keep the obstacle scan and brief)"* — moot now that the whole protocol is deferred. The build order itself (steps 1–10) is preserved as historical reference; for current Phase 5 v1 scope see `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04 and `docs/plans/phase5-master-plan.md`.
 
 ---
 
