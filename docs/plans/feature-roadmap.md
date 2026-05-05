@@ -24,9 +24,9 @@ The features are grouped by what they actually are: some are already in the PRD 
 | 12 | Logout button | **SHIPPED** (sub-phase 3, commit `20948de`) | — | — | — |
 | A1 | Cohort comparisons (Alpha-relevant) | Considered, not prioritized | M | — | — |
 | A3 | Pattern-recognition speed drills | Considered, not prioritized | M | — | — |
-| A5 | Spaced-repetition tightening | PRD §4.3; Phase 5 deliverable | S | Medium (Phase 5) | — |
+| A5 | Spaced-repetition tightening | Cut from v1 2026-05-04 | — | — | — |
 
-A2 (Confidence calibration tracking) and A4 (Pre-session readiness check) were cut on 2026-05-04 — see "Open product questions" → Resolved.
+A2 (Confidence calibration tracking), A4 (Pre-session readiness check), and A5 (Spaced-repetition tightening) were cut on 2026-05-04 — see "Open product questions" → Resolved (A2 + A4) and "Cut from v1 2026-05-04" (A5 + four sub-features cut alongside it).
 
 ---
 
@@ -312,17 +312,7 @@ A drill mode where each "question" is a short pattern (e.g., a number series wit
 
 ### A5. Spaced-repetition queue tightening
 
-**Status: PRD §4.3 specifies a 1/3/7/21 day SM-2 ladder. Not yet built.**
-
-The PRD's spaced-repetition queue is designed but unimplemented. Items the user got wrong (or got right but slowly) resurface at increasing intervals.
-
-**What's already specified**: SM-2 ladder, 1/3/7/21 days, "review" session pulls only items currently due, available from Mastery Map as a single button.
-
-**What Phase 5 adds technically**: the `review_queue` table, the queue-refresh workflow, the review-session route, the Mastery-Map "Review (N due)" button.
-
-**Why it's important enough to flag here**: short prep horizons (PRD §1) make spaced repetition the highest-value retention mechanic available. Without it, every drill teaches in isolation; with it, items the user struggled with come back at the right intervals to consolidate the pattern recognition.
-
-**Scope estimate**: ~5-7 commits. Already in the PRD; just needs to land in Phase 5.
+**Status: Cut from v1 2026-05-04.** See "Cut from v1 2026-05-04" section for the decision context.
 
 ---
 
@@ -334,20 +324,19 @@ Based on what's user-facing, what unblocks subsequent rounds, what's grounded in
 
 **Round B — Sub-phase 4 (heartbeats + cron-runner wiring). SHIPPED 2026-05-04** (close-out commit in flight). Four commits: `6016275` (plan), `9ce8325` (security fix — ownership-scope on heartbeat route), `78eb047` (smoke), close-out. Audit surfaced and closed a pre-deploy security gap; plan-prompt's expected three-piece build collapsed to a one-piece security-scope add since client + route + cron entry already existed.
 
-**Round Bx — Deploy-and-dogfood interlude.** Non-feature round; **gates Phase 5 planning detail**. Promotes Phase 3 to production users, runs ~1-2 weeks of real-user signal collection, then informs Phase 5 sub-phase priorities. The interlude is necessary because Phase 5 is interconnected enough (full-length tests + spaced-repetition + post-session review + click-to-highlight + dojo escalation) that a wrong sub-phase ordering can produce rework. Real-user signal is the cheapest way to make that ordering call. No code commits in Bx — the work is dogfood + observation + decisions for Round E's sub-phase structure.
+**Round Bx — Deploy-and-dogfood interlude. DEFERRED 2026-05-04** until Phase 5 + post-Phase-5 rounds complete, per Leo's no-deploy-until-feature-complete decision. The original framing positioned Bx as the gate on Phase 5 planning detail; that gate is overridden — Phase 5 sub-phase planning starts now (against `main`'s current state, without dogfood signal informing the carve). Bx returns as a non-feature round at whatever future point Leo elects to deploy. No code commits when it runs; the work is dogfood + observation against the then-current feature surface.
 
 **Round C — Stats dashboard + history (combined; #6 + #10).** First post-Phase-3 user-facing round, post-dogfood. ~6-8 commits. The data already exists in `attempts` + `practice_sessions`; this round is rendering it usefully. Does NOT depend on Phase 5 — can ship in parallel with or before Phase 5 sub-phases if dogfood signal favors stats over engine completeness.
 
-**Round E — Phase 5 master arc.** The next major engine-completeness arc. Sub-phase sequencing drafted AFTER Round Bx dogfood (per the interlude's purpose). High-level sub-phase contents:
+**Round E — Phase 5 master arc (v1 scope).** The next major engine-completeness arc. Master plan at `docs/plans/phase5-master-plan.md` carves Phase 5 v1 into five sub-phases (down from seven; see "Cut from v1 2026-05-04" for the cuts). Sub-phase contents:
 
-  - Post-session review surface (the foundation; everything else builds on it). Drill post-session UI per PRD §6.5.
-  - Full-length tests (#1; PRD §4.5). Re-uses post-session review surface.
-  - Click-to-highlight in post-session explanation review (#3; PRD §6.5 extension). Depends on post-session review surface being live; second commit on top of it.
-  - Spaced-repetition queue (#A5; PRD §4.3). Re-uses post-session review surface for the "got right but slowly" detection path.
-  - Dojo escalation UI (#7). Belt indicator, post-session-summary copy. Builds on the adaptive drill mode that Phase 5 lights up.
-  - Adaptive difficulty walking (closes the `ErrAdaptiveDeferred` placeholder in `selection.ts`). Foundation for #7's escalation indicator.
+  - **Sub-phase 1 — Post-session review surface** (the foundation; sub-phases 3 + 4 + 5 all build on it). PRD §6.5 minus the strategy-review gate which is cut from v1.
+  - **Sub-phase 2 — Adaptive difficulty walker** (closes the `ErrAdaptiveDeferred` placeholder in `selection.ts`). Foundation for sub-phase 5's belt indicator.
+  - **Sub-phase 3 — Full-length test, no strategy gate** (#1; PRD §4.5). Lands on sub-phase 1's review surface.
+  - **Sub-phase 4 — Click-to-highlight in post-session explanation review** (#3; PRD §6.5 extension). Builds on sub-phase 1's wrong-items browser.
+  - **Sub-phase 5 — Dojo UI rename + belt indicator** (#7). Belt lives on the post-session summary only (focus-shell exclusion). Visualizes sub-phase 2's adaptive walker.
 
-  Estimated total: ~15-25 commits across 4-6 sub-phases. Per-sub-phase planning happens AT ROUND-START, informed by dogfood. Each sub-phase follows the `docs/plans/phase3-*.md` pattern.
+  Estimated total: ~16-22 commits across the five sub-phases. Per-sub-phase planning happens AT ROUND-START. Each sub-phase follows the `docs/plans/phase3-*.md` pattern.
 
 **Round D — Phase 4 sub-phases (LLM generation; #4).** Sequencing position is post-Phase 5 despite the lower phase number. The PRD's candidate-promotion shadow-mode (30 days before enforcement) wants a mature testbank before generated items start landing — Phase 5's full-length-test framing surfaces real-user accuracy/latency signal that the validator can calibrate against. Multi-round body of work: generator sub-phase, validator sub-phase, scorer + deployer sub-phase, admin generation page sub-phase. Likely 3-4 weeks of work.
 
@@ -373,6 +362,22 @@ These are PRD non-goals or have been explicitly considered and rejected:
 - Live tutoring or AI chat (non-goal per PRD §1).
 - Direct individual leaderboards (PRD §1; cohort comparisons in #A1 are anonymized aggregates only).
 - Image-bearing sub-types (abstract reasoning, attention-to-detail, numerical.data_interpretation) — deferred to v2 per PRD §10.
+
+---
+
+## Cut from v1 2026-05-04
+
+Five surfaces from the original Phase-5 architecture-plan-line-66 list cut from v1 on 2026-05-04 as part of v1 scope tightening. Each cut defers to v2 — these are not permanent non-goals. The cuts are doc-only this round (master plan, roadmap, architecture-plan, PRD, SPEC); on-disk code surface (schema files, columns, server actions, reducer state) stays in tree as cut-from-v1-marked vestigial. Code-side cleanup is a deliberate follow-up round, planned after the v1-cuts pass lands.
+
+- **Spaced-repetition queue (was A5).** SM-2 ladder + `review_queue` table + queue-refresh workflow + `/review` session route + Mastery Map "Review (N due)" button. Cut from v1; defer to v2. Rationale: v1 scope tightening — the queue's value is real but its surface area (table, workflow, route, Mastery Map button, route handler) is the largest unbuilt piece in Phase 5; deferring it concentrates v1 on the higher-leverage post-session-review + full-length surfaces. The schema file `src/db/schemas/review/review-queue.ts` stays on disk; the `'review_queue'` selection-strategy throwing-stub stays in `src/server/items/selection.ts` as a defensive guard against impossible state in v1.
+
+- **Strategy-review gate (was bundled with #1 practice tests).** The 30-second post-full-length strategy gate per PRD §6.5. Cut from v1; defer to v2. Rationale: v1 scope tightening — the gate adds friction to full-length completion that we don't yet have signal to justify, and the `strategy_views` LEFT-JOIN deterministic-pick logic adds complexity that the post-session review surface doesn't otherwise need. Full-length tests still ship (sub-phase 3 of Phase 5 v1); they just land on the same post-session review surface as drills, no gate. The schema file `src/db/schemas/ops/strategy-views.ts` stays on disk.
+
+- **Speed-ramp + brutal drill modes.** PRD §4.4's two non-standard timer modes for drills (12s perQuestionTargetMs for speed-ramp; brutal-only items for brutal). Cut from v1; defer to v2. Rationale: v1 scope tightening — the standard-timer drill mode covers the dominant practice loop, and the speed-ramp + brutal modes add a timer-mode-selector UI surface plus per-mode initial-tier branches in `initialTierFor` whose value is unproven without dogfood signal. The `practice_sessions.timer_mode` enum stays as `['standard', 'speed_ramp', 'brutal']`; only `'standard'` is written in v1. Distinction worth pinning: "brutal" as a difficulty TIER (per `item_difficulty` enum, mastery-state references, fallback-walking) STAYS — it's load-bearing for the existing drill engine. Only "brutal" as a drill MODE is cut.
+
+- **Question-timer toggle + session-timer toggle.** PRD §5.1's per-user toggles for the question-timer bar (default-OFF) and session-timer bar (default depends on session type). Cut from v1; defer to v2. Rationale: v1 scope tightening — both toggles add preference-state machinery (`users.timer_prefs_json` column writes, `persistTimerPrefs` server action, `<TimerToggle>` UI surface in the focus shell, `timerPrefs` reducer state) for what's effectively a power-user accessibility feature. v1 ships with PRD §5.1's defaults baked in: session bar always-visible during timed sessions, question bar always default-OFF (no UI toggle to flip it). The `users.timer_prefs_json` column stays on disk; `persistTimerPrefs` stays on disk; the `timerPrefs` reducer state stays on disk. The two toggles cut together because the preference-state-machinery cost is the same whether one or both ship.
+
+- **NarrowingRamp pre-session protocol.** PRD §5.3's 75-second pre-session sequence (obstacle scan + visual narrowing + session brief + countdown launch). Cut from v1; defer to v2. Rationale: same friction-grounded reasoning that drove the A4 (pre-session readiness check) cut on 2026-05-04 — pre-session protocols add friction to session start whose value is unproven without dogfood signal. Consistent with A4's cut from commit `064a386`. The `practice_sessions.narrowing_ramp_completed` and `if_then_plan` columns stay on disk and are written by `startSession` with default values (always `false`/`null` in v1 since no caller passes `ifThenPlan`).
 
 ---
 
