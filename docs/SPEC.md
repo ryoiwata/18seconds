@@ -214,6 +214,19 @@ src/
     └── utils.ts                                               # already exists (cn helper)
 ```
 
+> **File-map paths cut from v1 2026-05-04.** The following entries above are specced-but-never-shipped under v1 scope (PRD §4.3 + §4.4 + §5.3 + §6.5 cut markers). On-disk-code-surface notes per entry — anyone wondering "is this path real?" should consult this list before grep'ing for it:
+>
+> - `src/db/schemas/practice/strategy_views.ts` (line 73 above) — **never shipped** in tree. 30-second strategy-review gate cut (PRD §6.5). The schema barrel reference at §3.6 is vestigial-in-spec.
+> - `src/db/schemas/review/review_queue.ts` (line 75; actual on-disk path is `review-queue.ts`) — **shipped during Phase 3, stays vestigial in tree.** Spaced-repetition queue cut (PRD §4.3). v1 never inserts rows. Drop in v1-code-cleanup.
+> - `src/server/review/queries.ts` + `src/server/review/schedule.ts` (lines 100–101 / §9.5) — **never shipped** in tree. Spaced-repetition cut.
+> - `src/server/narrowing-ramp/obstacle.ts` (line 110) — **never shipped** in tree. NarrowingRamp cut (PRD §5.3).
+> - `src/workflows/review-queue-refresh.ts` (line 117) — **never shipped** in tree. SR queue cut. `endSession` does not trigger this workflow in v1 (§7.3 marker).
+> - `src/components/narrowing-ramp/{narrowing-ramp,obstacle-scan,visual-narrowing,session-brief,launch-countdown}.tsx` (lines 142–148) — **never shipped** in tree. NarrowingRamp cut.
+> - `src/components/post-session/strategy-review-gate.tsx` (line 150) — **never shipped** in tree. Strategy-gate cut (PRD §6.5).
+> - `src/app/(app)/review/{page,content}.tsx` (lines 190–192) — **never shipped** in tree. SR queue cut.
+>
+> Schema files that **stay vestigial in tree** (column/enum/table preserved, never written by v1): `src/db/schemas/auth/users.ts` (`timer_prefs_json` column), `src/db/schemas/practice/practice-sessions.ts` (`timer_mode` enum, `narrowing_ramp_completed`, `if_then_plan`, `strategy_review_viewed` columns), `src/db/schemas/review/review-queue.ts` (entire table). All of the above queue for drop in the v1-code-cleanup follow-up round. The `# NEW: ...` comment annotations above are preserved as the original spec intent; treat the cut markers as the authoritative v1 status.
+
 ### New dependencies
 
 Add via `bun add`:
@@ -276,6 +289,8 @@ The four Auth.js tables are rewritten in `src/db/schemas/auth/` so every time-be
 | `created_at_ms` | `bigint` | `notNull`, `default extract(epoch from now()) * 1000` |
 
 Indexes: `email_idx` (unique).
+
+> **Cut from v1 2026-05-04** — timer-toggle UX (PRD §5.1 cut marker). The `timer_prefs_json` column **stays vestigial in tree** at `src/db/schemas/auth/users.ts`; no v1 reader writes or reads it. v1 timer visibility is static-per-session-type (session timer ON for non-diagnostic, question timer OFF everywhere; underlying 18s tracking still drives the triage prompt). Drop the column in the v1-code-cleanup follow-up round. See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04.
 
 `timer_prefs_json` shape: `{ sessionTimerVisible: boolean; questionTimerVisible: boolean }`. Empty `{}` resolves to `{ sessionTimerVisible: true, questionTimerVisible: false }` at session start.
 
@@ -451,6 +466,11 @@ In shadow mode (the first 30 days after the workflow lands), `enforced` is alway
 
 ### 3.4 Practice tables
 
+> **Partial cut from v1 2026-05-04.** Three columns + one table specced below stay vestigial in tree (or are never created) per PRD §4.4 + §5.3 + §6.5 cut markers. See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04. Cuts within this subsection:
+> - `practice_sessions.timer_mode` enum: only the `'standard'` value is written in v1. The `pgEnum('timer_mode', ['standard','speed_ramp','brutal'])` declaration **stays vestigial in tree** at `src/db/schemas/practice/practice-sessions.ts` (the enum definition is preserved; v1 just never writes `'speed_ramp'` or `'brutal'`). Drop the unused enum values in the v1-code-cleanup follow-up round. Note: this `timer_mode` enum is the **drill-mode** dimension and is unrelated to the **`item_difficulty`** enum (`['easy','medium','hard','brutal']`) on `attempts.served_at_tier` / `items.difficulty` — the **Brutal difficulty tier stays in v1** (item bank, fallback chains, `TIER_ORDER` references, adaptive walker can serve Brutal-tier items inside Standard drills).
+> - `practice_sessions.narrowing_ramp_completed` + `practice_sessions.if_then_plan` columns: NarrowingRamp protocol cut. Both columns **stay vestigial in tree**; v1 sessions write `narrowing_ramp_completed = false` (default) and `if_then_plan = null` unconditionally. Drop in v1-code-cleanup.
+> - `strategy_views` table prose below: 30-second strategy-review gate cut (PRD §6.5). The table **was never shipped** — `src/db/schemas/practice/strategy_views.ts` does not exist in tree. The schema barrel reference at §3.6 is also vestigial-in-spec-only. The `attempts` post-session-review surface (Phase 5 sub-phase 1) does not need least-recently-viewed strategy tracking.
+
 #### `src/db/schemas/practice/practice-sessions.ts` — table `practice_sessions`
 
 | column | type | constraint |
@@ -530,6 +550,8 @@ Append-only log used by the strategy-review gate to pick least-recently-viewed s
 Index: `strategy_views_user_strategy_idx` on `(user_id, strategy_id)` — drives the LEFT JOIN for least-recently-viewed lookup.
 
 ### 3.5 Review tables
+
+> **Cut from v1 2026-05-04** — spaced-repetition review queue (PRD §4.3 cut marker). The `review_queue` table **stays vestigial in tree** at `src/db/schemas/review/review-queue.ts` (the schema file shipped during Phase 3 to lock the migration shape; v1 never inserts rows into it). The schema-barrel registration at §3.6 also stays vestigial. Drop the table + its barrel entry in the v1-code-cleanup follow-up round. See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04.
 
 #### `src/db/schemas/review/review_queue.ts` — table `review_queue`
 
@@ -830,7 +852,7 @@ Layout-level placement is load-bearing — a page-level check would only cover t
 
 `src/server/auth/account-deletion.ts` exports `deleteAccount(userId)`. Runs a single transaction:
 
-1. Compute `rows_affected` per user-scoped table (sessions, attempts via cascade, mastery_state, review_queue, strategy_views, accounts, auth_sessions).
+1. Compute `rows_affected` per user-scoped table (sessions, attempts via cascade, mastery_state, ~~review_queue~~ [vestigial-in-tree, always 0 rows in v1 — see §3.5 cut marker], ~~strategy_views~~ [never shipped — see §3.4 cut marker; remove from cascade list before v1 ship], accounts, auth_sessions).
 2. `DELETE FROM users WHERE id = $1` — `ON DELETE CASCADE` on every user-scoped table flows the deletion through.
 3. Log a structured event with `{ user_id_hash, deleted_at_ms, rows_affected }` (no PII; `user_id_hash` is `sha256(user_id)`).
 
@@ -851,7 +873,7 @@ interface FocusShellProps {
     sessionId: string
     sessionType: "diagnostic" | "drill" | "full_length" | "simulation" | "review"
     sessionDurationMs: number | null   // null for diagnostic (untimed at session level)
-    perQuestionTargetMs: number        // 18000 for standard, 12000 for speed-ramp
+    perQuestionTargetMs: number        // 18000 for standard. (~~12000 for speed-ramp~~ — speed-ramp drill mode cut from v1 2026-05-04, see §3.4 marker.)
     targetQuestionCount: number
     paceTrackVisible: boolean          // false for diagnostic
     initialTimerPrefs: TimerPrefs
@@ -884,6 +906,8 @@ interface ItemSelection {
 `SubmitAttemptInput` and `SubmitAttemptResult` are defined in §7. `SubmitAttemptInput` carries an `ItemSelection` field that the FocusShell echoes from the most-recently-rendered item; `submitAttempt` writes those values onto the new `attempts` row.
 
 ### 6.2 Internal state (managed by `shell-reducer.ts`)
+
+> **Partial cut from v1 2026-05-04** — timer-toggle UX (PRD §5.1 cut marker). The `timerPrefs` reducer field stays in `ShellState` (the focus shell's static-per-session-type visibility config still flows through it — session timer ON for non-diagnostic, question timer OFF everywhere). The `toggle_session_timer` and `toggle_question_timer` reducer actions **stay specced but are never dispatched in v1** — there are no toggle UI controls to dispatch them. The shipped focus-shell code surface (`src/components/focus-shell/shell-reducer.ts`) stays vestigial-in-tree for these two action kinds. Drop the unused action kinds + dispatch sites in v1-code-cleanup.
 
 Per PRD §7 — global state libraries are banned; the shell uses `useReducer`.
 
@@ -930,7 +954,7 @@ content region:
 ```
 
 - The three bars stack with consistent vertical rhythm; their labels (`Per question time`, `Overall time`) sit immediately below the corresponding bar.
-- The progression bar is unconditional — it renders for every session type regardless of `timerPrefs`. The session bar + chronometer are hidden when `sessionDurationMs === null` (diagnostic) or `timerPrefs.sessionTimerVisible === false`. The per-question bar is hidden when `timerPrefs.questionTimerVisible === false`.
+- The progression bar is unconditional — it renders for every session type regardless of `timerPrefs`. The session bar + chronometer are hidden when `sessionDurationMs === null` (diagnostic) or `timerPrefs.sessionTimerVisible === false`. The per-question bar is hidden when `timerPrefs.questionTimerVisible === false`. **v1 cut (2026-05-04):** `timerPrefs` is static-per-session-type in v1 (no toggle UI) — session bar visible when `sessionDurationMs !== null`, per-question bar hidden everywhere. The `false` branches above stay reachable in code but are never user-toggled.
 - `<TriagePrompt>` is rendered as an overlay layer outside the chrome row + content region. `<InterQuestionCard>` and `<Heartbeat>` are siblings to the main column.
 
 ### 6.4 Timer animation strategy
@@ -959,6 +983,8 @@ content region:
 | `<QuestionTimerBarOverflow>` | bottom of the two stacked per-question bars in the chrome row, sits directly below the primary bar. Single red fill on a gray track. | empty (`scaleX(0)`) for `elapsedQuestionMs < perQuestionTargetMs`. Fills 0 → 100% red over `[perQuestionTargetMs, 2 × perQuestionTargetMs)`. Caps at 100% red beyond. The fill is held at scaleX(0) during the delay window via `animation-fill-mode: both` (NOT `forwards` — see §6.14). | tied to `timerPrefs.questionTimerVisible` (renders as a sibling of the primary bar). | yes (lockstep with the primary bar) |
 
 The two per-question bars are wrapped by a shared `<QuestionTimerBarStack>` parent that owns the layout rhythm and the "Per question time" label sitting beneath the pair.
+
+> **Cut from v1 2026-05-04** — timer-toggle UX + per-user persistence (PRD §5.1 cut marker). The "toggleable mid-session?" column entries (`yes` for session-bar / question-bar / overflow-bar) are **specced-but-never-shipped** in v1: no toggle UI exists. The `<SessionTimerBar>`'s default-visibility column ("ON for drill, full-length, simulation, review. **HIDDEN** for diagnostic.") is the v1 behavior, just static rather than user-toggleable. The `<QuestionTimerBarPrimary>`'s "ON by default per the polish-plan default flip" is **superseded by v1 cut** — question timer is OFF in v1. Drop the toggle prose + persistence-action wiring in v1-code-cleanup.
 
 `timerPrefs` is persisted per user. After every toggle, a server action writes `users.timer_prefs_json`. The server action does **not** call `revalidatePath` — this is a deliberate exception to the standard mutation pattern (§7.8).
 
@@ -1035,6 +1061,8 @@ The route handler at `/api/sessions/[sessionId]/heartbeat` updates `last_heartbe
 **Tab-backgrounding behavior — intended outcome.** Chrome's `IntensiveWakeUpThrottling` policy caps backgrounded `setTimeout` callbacks to roughly once per minute after the tab has been hidden for ~5 minutes. Once throttling kicks in, the heartbeat cadence drops from one beacon per 30 seconds to one beacon per ~60 seconds. With `HEARTBEAT_GRACE_MS = 30_000` (the cron's added grace) and `ABANDON_THRESHOLD_MS = 5 * 60_000` (the cron's cutoff), a backgrounded tab whose heartbeats space out to 60+ seconds will eventually have its `last_heartbeat_ms` cross the 5-minute abandon threshold; the cron sweeps the row and finalizes the session as `'abandoned'`. **This is the intended outcome.** A user who backgrounds their tab during a timed drill or diagnostic IS abandoning the session in the sense that matters — they're no longer in the focus shell, the timed contract no longer holds, and resuming midway would corrupt the latency signal the mastery model depends on. The browser-level throttling is upstream of any choice this codebase makes; rather than fighting it (e.g., with a service worker or `Page Visibility API` pause-instead-of-abandon logic), the design lets the throttling produce the correct outcome via the existing cron path. A user who briefly tab-switches and returns within the 5-minute window resumes cleanly via `startSession`'s fresh-resume path; a user who leaves the tab for 5+ minutes gets their session finalized.
 
 ### 6.12 Audio cues
+
+> **Audio gate downstream of v1-cut timer-toggle (2026-05-04).** The audio paths below gate on `timerPrefs.questionTimerVisible`. Per the v1 cut (§3.2 + §5.1 + §6.2 + §6.6 markers), `questionTimerVisible` is static-`false` in v1 — meaning **all focus-shell audio is silent in v1** (both pre-target ticks and post-target urgency loop). The audio implementation at `src/components/focus-shell/audio-ticker.ts` **stays vestigial in tree** but its hot paths never fire under v1 user state. If audio is desired in v1 separately from the question-timer toggle, the gate condition needs to change (out of v1 scope; track in v1-code-cleanup or a follow-up). See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04.
 
 The focus shell uses a hybrid two-path audio model — synthesized ticks before the per-question target, a sampled MP3 looping from the target until advance.
 
@@ -1252,11 +1280,11 @@ API routes live under `src/app/api/`. They use the same `errors.try` pattern.
 async function startSession(input: StartSessionInput): Promise<{ sessionId: string; firstItem: ItemForRender }>
 
 interface StartSessionInput {
-    type: "diagnostic" | "drill" | "full_length" | "simulation" | "review"
-    subTypeId?: SubTypeId           // required for drill, review
-    timerMode?: "standard" | "speed_ramp" | "brutal"  // required for drill
+    type: "diagnostic" | "drill" | "full_length" | "simulation" | "review"   // v1 (2026-05-04): "review" type cut, see §10.5 marker
+    subTypeId?: SubTypeId           // required for drill, ~~review~~ (review type cut from v1)
+    timerMode?: "standard" | "speed_ramp" | "brutal"  // required for drill. v1 (2026-05-04): only "standard" is written; "speed_ramp" and "brutal" cut, see §3.4 marker
     drillLength?: 5 | 10 | 20       // required for drill
-    ifThenPlan?: string             // captured by NarrowingRamp
+    ifThenPlan?: string             // ~~captured by NarrowingRamp~~ — NarrowingRamp cut from v1 2026-05-04 (§5.3 marker); v1 callers do not pass `ifThenPlan`
 }
 ```
 
@@ -1264,7 +1292,7 @@ Side effects:
 - Reads `auth()` to resolve `userId` (throws `ErrUnauthorized` if missing).
 - Computes `target_question_count` from `input` (50 for diagnostic / full_length / simulation; `drillLength` for drill; `count(due)` for review).
 - Calls `computeRecencyExcludedSet(userId, Date.now())` from `src/server/items/recency.ts` — a single query joining `attempts` to `practice_sessions` filtered by `practice_sessions.user_id = $1 AND attempts.id >= uuidv7LowerBound(now - 7d)`, returning the distinct set of `item_id`s.
-- Inserts a `practice_sessions` row with `started_at_ms = Date.now()`, `last_heartbeat_ms = Date.now()`, `target_question_count`, `recency_excluded_item_ids`, `narrowing_ramp_completed = !!input.ifThenPlan`, `if_then_plan = input.ifThenPlan ?? null`.
+- Inserts a `practice_sessions` row with `started_at_ms = Date.now()`, `last_heartbeat_ms = Date.now()`, `target_question_count`, `recency_excluded_item_ids`, `narrowing_ramp_completed = !!input.ifThenPlan`, `if_then_plan = input.ifThenPlan ?? null`. (v1 2026-05-04: `input.ifThenPlan` is always `undefined` — NarrowingRamp cut, §5.3 marker. v1 rows always have `narrowing_ramp_completed = false` and `if_then_plan = null`. Both columns stay vestigial in tree, see §3.4 marker.)
 - Calls `getNextItem(sessionId)` synchronously to return the first item.
 
 Tables touched: `practice_sessions` (insert), `attempts` + `practice_sessions` (read for recency), `items` (select via `getNextItem`).
@@ -1301,10 +1329,10 @@ async function endSession(sessionId: string): Promise<void>
 Side effects:
 - Sets `practice_sessions.ended_at_ms = Date.now()`, `completion_reason = 'completed'` for `sessionId` (idempotent — guarded by `WHERE ended_at_ms IS NULL`).
 - Triggers `masteryRecomputeWorkflow(sessionId)` (fire-and-forget per PRD §8.3).
-- Triggers `reviewQueueRefreshWorkflow(userId)`.
+- ~~Triggers `reviewQueueRefreshWorkflow(userId)`.~~ **Cut from v1 2026-05-04** — review queue (PRD §4.3 cut). The `reviewQueueRefreshWorkflow` was **never shipped** to tree (`src/workflows/review-queue-refresh.ts` does not exist). v1 `endSession` does not trigger any review-queue work.
 - Calls `revalidatePath('/post-session/' + sessionId)`.
 
-Tables touched: `practice_sessions` (update). Workflow consumers touch `attempts`, `mastery_state`, `review_queue`.
+Tables touched: `practice_sessions` (update). Workflow consumers touch `attempts`, `mastery_state`, ~~`review_queue`~~ (review_queue inserts cut from v1 2026-05-04 — see PRD §4.3 + SPEC §3.5 cut markers).
 
 ### 7.4 `getNextItem` — `src/server/items/selection.ts`
 
@@ -1318,16 +1346,16 @@ Implementation dispatches on the session's `selectionStrategy`, derived from `pr
 
 - `'adaptive'` (drill only) — adaptive tier via `nextDifficultyTier` over the user's last 10 in-session attempts on this sub-type, computed from the `attempts` table on every call. Filtered by the recency-excluded set, then by the tier-fallback ladder (§9.1).
 - `'fixed_curve'` (diagnostic / full_length / simulation) — the per-question (sub-type, difficulty) is read from the deterministic mix in `src/config/diagnostic-mix.ts` (diagnostic) or from the per-decile distribution in `src/config/difficulty-curves.ts` (full_length / simulation), indexed by the count of attempts already in the session. Filtered by the recency-excluded set.
-- `'review_queue'` — items pulled from `review_queue` ordered by `due_at_ms` ascending.
+- ~~`'review_queue'` — items pulled from `review_queue` ordered by `due_at_ms` ascending.~~ **Cut from v1 2026-05-04** (PRD §4.3 cut). The `'review_queue'` selection-strategy branch is **specced-but-never-dispatched** in v1: no v1 session has `type === 'review'` (the `/review/` route is also cut, see §10.5). The `'review_queue'` enum value in `selectionStrategy` stays vestigial in spec; the implementation branch was never shipped to `src/server/items/selection.ts`.
 
 Returns `undefined` when:
 - The session quota is reached (`COUNT(attempts WHERE session_id = $1) >= target_question_count`), OR
-- For brutal drills, both the brutal and hard banks are exhausted under the user's recency floor, OR
-- For review sessions, the due-set has been served.
+- For brutal drills, both the brutal and hard banks are exhausted under the user's recency floor, OR ~~**Brutal drill mode cut from v1 2026-05-04**; the brutal-tier-fallback path stays specced but is unreachable in v1 because no v1 session has `timer_mode === 'brutal'`. Brutal-tier *items* still exist in the bank — see §3.4 marker on the tier/mode disambiguation.~~
+- ~~For review sessions, the due-set has been served.~~ **Cut from v1 2026-05-04** (PRD §4.3 cut). No v1 session has `type === 'review'`.
 
 The `served_at_tier`, `fallback_from_tier`, and `fallback_level` for the chosen item are passed back to the client alongside the `ItemForRender` payload (see §6.1 — `ItemForRender` carries a `selection` field with `{ servedAtTier, fallbackFromTier?, fallbackLevel }`). The FocusShell echoes them back to the server in the next `submitAttempt` invocation, where `submitAttempt` writes them onto the inserted `attempts` row. No serverless-state-survival concern: the values travel through the request/response cycle exactly once, in flight.
 
-Tables: `items`, `attempts`, `practice_sessions`, `review_queue`.
+Tables: `items`, `attempts`, `practice_sessions`. ~~`review_queue`~~ (review_queue reads cut from v1 2026-05-04; see PRD §4.3 + SPEC §3.5 cut markers).
 
 ### 7.5 `dismissPostSession` — `src/app/(app)/post-session/[sessionId]/actions.ts`
 
@@ -1336,7 +1364,7 @@ async function dismissPostSession(sessionId: string): Promise<void>
 ```
 
 Side effects:
-- For `full_length` sessions, sets `practice_sessions.strategy_review_viewed = true`. Throws `ErrStrategyReviewRequired` if the gate has not yet elapsed.
+- ~~For `full_length` sessions, sets `practice_sessions.strategy_review_viewed = true`. Throws `ErrStrategyReviewRequired` if the gate has not yet elapsed.~~ **Cut from v1 2026-05-04** — 30-second strategy-review gate (PRD §6.5 cut marker). The `strategy_review_viewed` column **stays vestigial in tree** at `src/db/schemas/practice/practice-sessions.ts` (default `false`, never written `true` in v1). `ErrStrategyReviewRequired` is **never thrown** in v1 — see §7.15 marker. v1 `dismissPostSession` has no full-length-specific branch.
 - For diagnostic sessions where the user has not yet provided onboarding targets, the post-session page renders the `<OnboardingTargets>` form first and `dismissPostSession` is gated by `<OnboardingTargets>` having posted (or skipped) via `saveOnboardingTargets`.
 - Calls `revalidatePath('/')`.
 
@@ -1388,6 +1416,8 @@ The `expires_ms` check sits inside the subquery's WHERE clause so an expired tok
 **DB-state is the only signal.** Differing response codes (e.g., 401 for missing cookie, 403 for owner-mismatch, 404 for missing row) would let an unauthenticated probe enumerate which sessionIds exist by observing the response code. Returning uniform 204 closes that side channel — an attacker probing arbitrary UUIDv7 sessionIds gets the same 204 whether the id is real, owned, or garbage. Verification of the contract anchors on DB read-back (`SELECT last_heartbeat_ms FROM practice_sessions WHERE id = $sid`), not on response shape; see `scripts/dev/smoke/heartbeat-route-ownership.ts` (sub-phase 4 commit 2, hash `78eb047`) for the canonical four-scenario smoke and §6.14.14 for the generalizable pattern.
 
 ### 7.8 `persistTimerPrefs` — `src/app/(app)/actions.ts`
+
+> **Cut from v1 2026-05-04** — timer-toggle UX (PRD §5.1 cut marker). `persistTimerPrefs` was **never shipped** to tree (`src/app/(app)/actions.ts` does not export it). With the toggle UI cut, no caller needs to write `users.timer_prefs_json` at runtime. Section preserved as historical reference. The "no `revalidatePath`" exception note remains an accurate description of the deliberate design *if* the action ever returns post-v1. See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04.
 
 ```ts
 async function persistTimerPrefs(input: TimerPrefs): Promise<void>
@@ -1517,7 +1547,7 @@ Every server action and API route follows `rules/error-handling.md`. Module-leve
 ```ts
 const ErrSessionNotFound = errors.new("session not found")
 const ErrItemNotFound = errors.new("item not found")
-const ErrStrategyReviewRequired = errors.new("strategy review required before dismiss")
+const ErrStrategyReviewRequired = errors.new("strategy review required before dismiss")  // CUT FROM v1 2026-05-04 — strategy-review gate (PRD §6.5 cut). Never declared in tree; never thrown in v1. See §7.5 marker.
 const ErrUnauthorized = errors.new("unauthorized")
 const ErrCronAuth = errors.new("cron authorization failed")
 ```
@@ -1743,14 +1773,14 @@ The recompute window for adaptive uses `served_at_tier`, not `items.difficulty`,
 | `drill`      | `'adaptive'` |
 | `full_length` | `'fixed_curve'` (sourced from `difficulty-curves.ts`) |
 | `simulation`  | `'fixed_curve'` (same curve as full_length) |
-| `review`      | `'review_queue'` |
+| ~~`review`~~ | ~~`'review_queue'`~~ — **cut from v1 2026-05-04** (PRD §4.3 + SPEC §3.5 + §10.5 markers). No v1 session has `type === 'review'`. |
 
 Fallback chains within `getNextItem`:
 
 - **Recency floor (soft):** Try eligible items not served in the last 7 days first. If none, fall back to eligible-and-not-served-this-session. If still none, any eligible item ordered by oldest-served-first. This guarantees `getNextItem` always returns something rather than throwing mid-drill.
 - **Tier fallback (drill mode):** If the requested tier is exhausted under the recency floor:
-    - **Standard / speed-ramp drill:** fall back to the next-easier tier and surface a peripheral note framed as user achievement: "All hard items mastered for this set — continuing at medium."
-    - **Brutal drill:** fall back from `brutal → hard → end`. If both are exhausted, end the session early with the user-positive message "All brutal items mastered for this set." Falling further (to medium) is **not allowed** — the alternative would defeat the brutal mode's purpose.
+    - **Standard ~~/ speed-ramp~~ drill:** fall back to the next-easier tier and surface a peripheral note framed as user achievement: "All hard items mastered for this set — continuing at medium." (~~speed-ramp drill mode cut from v1 2026-05-04 — PRD §4.4 cut. Standard-drill tier-fallback ladder is the only v1 path.~~)
+    - ~~**Brutal drill:** fall back from `brutal → hard → end`. If both are exhausted, end the session early with the user-positive message "All brutal items mastered for this set." Falling further (to medium) is **not allowed** — the alternative would defeat the brutal mode's purpose.~~ **Brutal drill mode cut from v1 2026-05-04** (PRD §4.4 cut). Brutal-tier-as-mode is unreachable in v1. Brutal-tier-as-difficulty (item bank, `served_at_tier` enum, `TIER_ORDER`) is **unaffected** — the adaptive walker (§9.1) can still serve Brutal-tier *items* inside a Standard drill via the next-harder-tier step.
 
 Each `attempts` row records both `served_at_tier` (what the engine intended) and `fallback_from_tier` (nullable; populated only when tier-degraded). `metadata_json.fallback_level` captures which fallback path fired: `'fresh' | 'session-soft' | 'recency-soft' | 'tier-degraded'`.
 
@@ -1812,6 +1842,8 @@ Sequential, not parallelized — partial-failure complexity isn't worth the few 
 
 ### 9.5 SM-2 spaced-repetition schedule (PRD §4.3)
 
+> **Cut from v1 2026-05-04** — spaced-repetition queue (PRD §4.3 cut marker). `src/server/review/schedule.ts` was **never shipped** to tree; `nextDueAtMs` and `scheduleReview` do not exist as runnable code. `submitAttempt` does not call `scheduleReview` in v1. Section preserved as historical reference. See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04.
+
 `src/server/review/schedule.ts`:
 
 ```ts
@@ -1856,6 +1888,8 @@ function deriveNearGoal(input: {
 
 ## 10. Session flows
 
+> **v1 cut markers landed below 2026-05-04** — NarrowingRamp protocol, strategy-review gate, and review-queue session type are all cut from v1 (PRD §4.3 + §5.3 + §6.5 cut markers). The shape of every v1 session is simplified to: **FocusShell → PostSessionReview** (no NarrowingRamp prefix). The `/review/` route was never shipped (§10.5 marker). The 30-second strategy-review gate after full-length tests is removed (§10.3 marker). See per-section markers below for on-disk-code-surface notes.
+
 The shape of every session is: (NarrowingRamp) → FocusShell → PostSessionReview. Each session type below maps to a route in `src/app/(app)/`.
 
 ### 10.1 Diagnostic — `/diagnostic`
@@ -1889,16 +1923,18 @@ PRD §4.4.
 
 **Sign-out button.** The Mastery Map's header (top-right) renders `<SignOutButton>` for users not currently inside a session — see §10.1's flow paragraph. The button is deliberately absent from `/diagnostic/run` and `/drill/[subTypeId]/run` (the focus shell strips chrome to maintain session focus) and from the diagnostic explainer at `/diagnostic` (mid-flow surface). Visual treatment is `text-foreground/70` with a `hover:text-foreground` transition — distinct from the footer's low-contrast `<TriageAdherenceLine>` because sign-out is an ACTION, not a STATUS, and inheriting the periphery treatment would make it harder to find.
 
-The session-timer toggle does NOT live on the configure page — it's a focus-shell periphery control only.
+The session-timer toggle does NOT live on the configure page — it's a focus-shell periphery control only. (v1 2026-05-04: timer-toggle UX cut entirely, PRD §5.1 + SPEC §6.6 markers. Sentence preserved as historical reference for the configure-page placement decision.)
 
 ### 10.3 Full-length test — `/test`
 
+> **Partial cut from v1 2026-05-04.** Full-length test stays in v1 (Phase 5 sub-phase 3). Two prefix/suffix elements cut: NarrowingRamp pre-session (PRD §5.3) and strategy-review gate post-session (PRD §6.5). v1 shape: directly → `<FocusShell>` → post-session review (dismissible immediately). On-disk surface: `src/components/narrowing-ramp/*` and `src/components/post-session/strategy-review-gate.tsx` were **never shipped** to tree.
+
 PRD §4.5. 50 items, 15 minutes, real-test difficulty mix with randomized interleaving across the 11 v1 sub-types (verbal and numerical, no section breaks). The real CCAT additionally interleaves abstract and attention-to-detail items; v1 omits those because v1 does not cover those sections.
 
-1. `/test/page.tsx` renders `<NarrowingRamp>`.
+1. ~~`/test/page.tsx` renders `<NarrowingRamp>`.~~ **Cut 2026-05-04.** v1 `/test/page.tsx` calls `startSession({ type: "full_length" })` directly (no `ifThenPlan`).
 2. `startSession({ type: "full_length", ifThenPlan })`. `getNextItem` selects per the per-decile mix in `src/config/difficulty-curves.ts`, with cross-sub-type interleaving (the ordering of sub-types within a decile is randomized per session). Pulls from `source: "real"` first; only falls back to `generated` when the real-bank set is exhausted for the requested sub-type/difficulty bucket.
 3. `<FocusShell>` with `sessionDurationMs: 900000`, `perQuestionTargetMs: 18000`, `paceTrackVisible: true`.
-4. After submit-or-timeout, `endSession`. `/post-session/[sessionId]` renders WITH the 30s strategy-review gate. Dismiss button is disabled until 30s have elapsed AND `<StrategyReviewGate>` reports the strategy was viewed; `dismissPostSession` enforces this server-side via `ErrStrategyReviewRequired`. The strategy is picked deterministically: lowest accuracy → highest median latency → lexicographic `sub_type_id`. Within the chosen sub-type, pick least-recently-viewed strategy via a LEFT JOIN against `strategy_views`.
+4. After submit-or-timeout, `endSession`. ~~`/post-session/[sessionId]` renders WITH the 30s strategy-review gate. Dismiss button is disabled until 30s have elapsed AND `<StrategyReviewGate>` reports the strategy was viewed; `dismissPostSession` enforces this server-side via `ErrStrategyReviewRequired`. The strategy is picked deterministically: lowest accuracy → highest median latency → lexicographic `sub_type_id`. Within the chosen sub-type, pick least-recently-viewed strategy via a LEFT JOIN against `strategy_views`.~~ **Cut 2026-05-04.** v1 `/post-session/[sessionId]` is dismissible immediately for `full_length` like every other session type (drill / diagnostic / simulation). The deterministic strategy-pick query, the `<StrategyReviewGate>` component, and the `strategy_views` LEFT JOIN are all unreachable in v1.
 
 ### 10.4 Test-day simulation — `/simulation`
 
@@ -1910,6 +1946,8 @@ PRD §4.6. Identical to full-length except:
 
 ### 10.5 Spaced-repetition review — `/review`
 
+> **Cut from v1 2026-05-04** — spaced-repetition queue (PRD §4.3 cut marker). The `/review/` route was **never shipped** to tree (`src/app/(app)/review/page.tsx` and `src/app/(app)/review/content.tsx` do not exist). Section preserved as historical reference. v1 has no `'review'`-typed sessions; the Mastery Map's "Review (N due)" secondary action is also cut. See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04.
+
 PRD §4.3.
 
 1. `/review/page.tsx` queries `review_queue` for due items (`due_at_ms <= Date.now()`). If zero rows, redirects back to `/`.
@@ -1919,6 +1957,8 @@ PRD §4.3.
 5. `/post-session/[sessionId]` (no strategy-review gate).
 
 ### 10.6 NarrowingRamp orchestration
+
+> **Cut from v1 2026-05-04** — NarrowingRamp pre-session protocol (PRD §5.3 cut marker). All five components (`narrowing-ramp.tsx`, `obstacle-scan.tsx`, `visual-narrowing.tsx`, `session-brief.tsx`, `launch-countdown.tsx`) and the server helper (`src/server/narrowing-ramp/obstacle.ts`) were **never shipped** to tree. The `<NarrowingRamp>` orchestrator, `suggestObstacleOptions(userId)` weakness-based slot computation, and the if-then-plan implementation-intentions templates are all unreachable in v1. v1 sessions launch directly from the Mastery Map start-session button. Section preserved as historical reference. See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04.
 
 Lives at `src/components/narrowing-ramp/narrowing-ramp.tsx`. Pure client component that runs four sequential timed steps and then calls `onComplete(ifThenPlan: string)`. Steps:
 
@@ -1944,9 +1984,9 @@ Lives at `src/components/narrowing-ramp/narrowing-ramp.tsx`. Pure client compone
 Then renders `<PostSessionReview>` which composes `<WrongItemsList>`, accuracy/latency summary, triage score (with the small-sample / N/A branches per §9.7), surfaced strategies, and:
 
 - For diagnostic only: `<OnboardingTargets>` (target percentile + target date capture). Primary button "Save and continue"; smaller "Skip for now" link. Both flows then dismiss the post-session.
-- For full_length only: `<StrategyReviewGate>` — 30-second timer plus a single rendered strategy paired with the user's worst sub-type from this session. Dismiss button is disabled until the gate elapses and the strategy is marked viewed; the gate posts a `strategy_views` row when the strategy first appears.
+- ~~For full_length only: `<StrategyReviewGate>` — 30-second timer plus a single rendered strategy paired with the user's worst sub-type from this session. Dismiss button is disabled until the gate elapses and the strategy is marked viewed; the gate posts a `strategy_views` row when the strategy first appears.~~ **Cut from v1 2026-05-04** — strategy-review gate (PRD §6.5 cut marker). `<StrategyReviewGate>` was **never shipped** to tree. v1 full_length post-session is dismissible immediately like every other session type.
 
-For diagnostic and drill and review, the dismiss button is enabled immediately.
+For diagnostic ~~and drill and review~~ **and drill** (review session type also cut, §10.5 marker), the dismiss button is enabled immediately. **In v1 (2026-05-04), this applies to all session types** including full_length and simulation.
 
 ### 10.8 Heartbeats and abandons
 
@@ -1991,7 +2031,7 @@ This list is the union of `rules/*.md` and `gritql/*.grit` actually present in t
 - [ ] **No implicit `select(*)` / `returning(*)`.** Always pass a column object. (`rules/no-implicit-select-all.md`, `gritql/no-implicit-select-all.grit`)
 - [ ] **Prepared statements colocated with the page that uses them**, with type derived via `Awaited<ReturnType<typeof query.execute>>[number]`. (`rules/rsc-data-fetching-patterns.md`)
 - [ ] **Server components never `async`.** Initiate fetches, pass promises, consume with `React.use()` in client components. (`rules/rsc-data-fetching-patterns.md`)
-- [ ] **Mutations are server actions** with `revalidatePath` after writes — except `persistTimerPrefs` (§7.8), which is a deliberate exception.
+- [ ] **Mutations are server actions** with `revalidatePath` after writes ~~— except `persistTimerPrefs` (§7.8), which is a deliberate exception~~. (v1 2026-05-04: `persistTimerPrefs` cut, §7.8 marker; the "deliberate exception" carve-out is unreachable in v1. The general rule stands without the exception.)
 - [ ] **Zod uses `safeParse`, never `parse`.** (`rules/zod-usage.md`)
 
 ---
@@ -2063,17 +2103,19 @@ Sub-phases 1 (diagnostic flow), 2 (Mastery Map + post-diagnostic empty-state pan
 
 ### Phase 5 — Engine completeness (week 2, days 3–5)
 
+> **v1 scope tightened 2026-05-04** — five surfaces in this phase cut from v1 (PRD §4.3 + §4.4 + §5.3 + §5.1 + §6.5 cut markers). Authoritative current Phase-5 scope lives in `docs/plans/phase5-master-plan.md` (five sub-phases: post-session review surface, adaptive walker, full-length test no gate, click-to-highlight, dojo UI rename + belt indicator). The list below is preserved as historical-spec; treat strikethroughs + cut markers as the v1 status. See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04.
+
 - `src/server/items/selection.ts` (MOD: add `nextDifficultyTier` and the fallback chains)
-- `src/server/review/{queries,schedule}.ts` (NEW)
-- `src/workflows/review-queue-refresh.ts` (NEW)
-- `src/app/(app)/review/{page,content}.tsx` (NEW)
+- ~~`src/server/review/{queries,schedule}.ts` (NEW)~~ **Cut from v1 2026-05-04** — SR queue (PRD §4.3); never shipped to tree.
+- ~~`src/workflows/review-queue-refresh.ts` (NEW)~~ **Cut from v1 2026-05-04** — SR queue; never shipped to tree.
+- ~~`src/app/(app)/review/{page,content}.tsx` (NEW)~~ **Cut from v1 2026-05-04** — SR queue route; never shipped to tree.
 - `src/components/focus-shell/triage-prompt.tsx` (MOD: full triage logic, persistent rendering)
-- `src/components/focus-shell/question-timer-bar.tsx` (MOD: toggle + persistence)
-- `src/components/narrowing-ramp/{narrowing-ramp,obstacle-scan,visual-narrowing,session-brief,launch-countdown}.tsx` (NEW)
-- `src/server/narrowing-ramp/obstacle.ts` (NEW)
-- `src/components/post-session/strategy-review-gate.tsx` (NEW)
-- `src/app/(app)/test/{page,content}.tsx` (NEW) — full-length practice test, gated on the new strategy-review gate
-- Speed-ramp and brutal drill modes wired through the configure page.
+- ~~`src/components/focus-shell/question-timer-bar.tsx` (MOD: toggle + persistence)~~ **Cut from v1 2026-05-04** — timer-toggle UX (PRD §5.1). Question-timer bar shipped during Phase 3; the toggle + persistence MOD is cut. Drop unused toggle code paths in v1-code-cleanup.
+- ~~`src/components/narrowing-ramp/{narrowing-ramp,obstacle-scan,visual-narrowing,session-brief,launch-countdown}.tsx` (NEW)~~ **Cut from v1 2026-05-04** — NarrowingRamp (PRD §5.3); never shipped to tree.
+- ~~`src/server/narrowing-ramp/obstacle.ts` (NEW)~~ **Cut from v1 2026-05-04** — NarrowingRamp helper; never shipped to tree.
+- ~~`src/components/post-session/strategy-review-gate.tsx` (NEW)~~ **Cut from v1 2026-05-04** — strategy gate (PRD §6.5); never shipped to tree.
+- `src/app/(app)/test/{page,content}.tsx` (NEW) — full-length practice test ~~, gated on the new strategy-review gate~~ (gate cut 2026-05-04; full-length test stays in scope as Phase 5 sub-phase 3, no gate).
+- ~~Speed-ramp and brutal drill modes wired through the configure page.~~ **Cut from v1 2026-05-04** — speed-ramp + brutal drill modes (PRD §4.4). v1 ships Standard drill mode only.
 
 ### Phase 6 — Polish & cuts (week 2, days 5–7)
 
@@ -2083,7 +2125,7 @@ Sub-phases 1 (diagnostic flow), 2 (Mastery Map + post-diagnostic empty-state pan
 - `src/workflows/candidate-promotion.ts` (NEW; ships in shadow mode), `src/app/api/cron/candidate-promotion/route.ts` (NEW)
 - Surface strategies in `<PostSessionReview>` (already wired in phase 5).
 
-PRD §9 cuts apply if behind: simulation, history detail views, NarrowingRamp's visual-narrowing step. The mastery model, generation pipeline, focus shell, and Mastery Map are non-negotiable.
+PRD §9 cuts apply if behind: simulation, history detail views. The mastery model, generation pipeline, focus shell, and Mastery Map are non-negotiable. (NarrowingRamp's visual-narrowing step was previously listed here as a cut candidate — moot now since the entire NarrowingRamp protocol is cut from v1 2026-05-04, see PRD §5.3 + SPEC §10.6 markers.)
 
 ---
 
