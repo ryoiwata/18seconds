@@ -377,7 +377,7 @@ The stack is anchored on the Superbuilders [`superstarter`](https://github.com/s
 - **Workflow uses:**
     - The generation pipeline (generate → validate → score → deploy), one workflow per item with retries.
     - Recomputing user mastery state after a session.
-    - Refreshing the spaced-repetition queue.
+    - ~~Refreshing the spaced-repetition queue.~~ **Cut from v1 2026-05-04** — spaced-repetition queue cut (§4.3 cut marker). The `reviewQueueRefreshWorkflow` was never shipped; v1 has no SR queue work. See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04.
     - Backfilling embeddings for newly-ingested real items.
 - **Synchronous path** (not workflows): every user-facing interaction. Question render → answer submit → next question stays a single round trip.
 
@@ -403,7 +403,7 @@ For clarity on what won't be installed and why:
 - **No tRPC.** Server actions cover all client-server communication.
 - **No global state library** (Redux, Zustand, Jotai). Server state is in Postgres; client state is component-local. The focus shell's complexity is manageable with `useReducer`.
 - **No client-side query library** (TanStack Query, SWR). Server components handle fetching.
-- **No Redis.** Postgres is sufficient for the spaced-repetition queue and session state at this scale.
+- **No Redis.** Postgres is sufficient for ~~the spaced-repetition queue and~~ session state at this scale. (**Cut from v1 2026-05-04** — SR queue cut, §4.3 cut marker. The no-Redis decision still stands; the rationale just leans on session state alone in v1. See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04.)
 - **No payments, email service, analytics SDK, notification system, or CDN configuration.** Out of scope per section 10.
 
 ### Required external accounts and credentials
@@ -427,6 +427,12 @@ If AWS or Vercel team accounts aren't yet provisioned, the application can run l
 All `id` columns use UUIDv7 (per the Superbuilder Ruleset). All time-bearing columns are `bigint` epoch milliseconds (no `timestamp`/`date`/`time`/`interval` per the ruleset). One table per file under `src/db/schemas/`, organized by domain.
 
 The Auth.js tables (`users`, `accounts`, `sessions`, `verification_tokens`) are maintained by the Drizzle adapter with custom `bigint` schemas as noted in section 7. The application-specific tables below are additional.
+
+> **Partial cut from v1 2026-05-04.** Schema sketch below preserved as historical reference; two callouts per the round's on-disk-code-surface convention (cleanup deferred to the v1-code-cleanup follow-up round, not this round):
+> - `sessions.narrowing_ramp_completed` + `sessions.if_then_plan` columns: NarrowingRamp protocol cut (§5.3 marker). Both columns **stay vestigial in tree** at `src/db/schemas/practice/practice-sessions.ts`; v1 sessions write `narrowing_ramp_completed = false` (default) and `if_then_plan = null` unconditionally.
+> - `review_queue` table: spaced-repetition queue cut (§4.3 marker). The table **stays vestigial in tree** at `src/db/schemas/review/review-queue.ts` (shipped during Phase 3 to lock the migration shape); v1 never inserts rows.
+>
+> See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04. The detailed SPEC counterparts are at SPEC §3.4 + §3.5 cut markers.
 
 ```
 users (id, email, name, image, target_percentile, target_date_ms,
@@ -490,9 +496,9 @@ A 2-week build plan, in priority order.
 **Week 2:**
 
 6. LLM generation pipeline (generator + validator + scorer + deploy).
-7. Adaptive difficulty + spaced-repetition queue.
-8. Triage trainer + speed ramp + brutal drill modes + question timer toggle.
-9. NarrowingRamp + score-to-target + post-session review.
+7. Adaptive difficulty ~~+ spaced-repetition queue~~. (**Cut from v1 2026-05-04** — SR queue cut, §4.3 marker. Adaptive difficulty stays in v1 — Phase 5 sub-phase 2. See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04.)
+8. Triage trainer ~~+ speed ramp + brutal drill modes + question timer toggle~~. (**Cut from v1 2026-05-04** — speed-ramp + brutal drill modes (§4.4 marker) + question-timer toggle (§5.1 marker) all cut. Triage trainer stays in v1. See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04.)
+9. ~~NarrowingRamp +~~ score-to-target + post-session review. (**NarrowingRamp cut from v1 2026-05-04** — §5.3 marker. Score-to-target and post-session review both stay in v1; post-session review is Phase 5 sub-phase 1. See `docs/plans/feature-roadmap.md` § Cut from v1 2026-05-04.)
 10. Strategy library + test-day simulation mode + history tab.
 
 **Cuts if behind:** test-day simulation, history tab detail views. The mastery model, generation pipeline, focus shell, and Mastery Map are non-negotiable.
