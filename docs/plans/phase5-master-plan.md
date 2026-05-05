@@ -16,6 +16,8 @@ Three forcing functions:
 
 The cost of skipping dogfood is real but bounded: Phase 5's sub-phases each follow the audit-and-polish pattern that worked through Phase 3's four sub-phases — each sub-phase opens with an audit of `main`'s relevant state at sub-phase start, which catches drift the dogfood-signal would have surfaced earlier but doesn't prevent shipping. The accumulated SPEC §6.14 implementation notes (16 entries through Phase 3, especially .11 audit-tighter-than-contract, .14 uniform-response-code-for-ownership-opacity, .15 hermetic-smoke-with-per-run-isolation, .16 auth-shape audit) are the discipline that compensates.
 
+**Alpha Style adoption.** Phase 5 also adopts Alpha Style as the design system for non-focus-shell UI; the focus shell's tuned visual language is preserved as-is. See §11.5 for the boundary, the rationale, and the round-opening setup hook that runs in sub-phase 1.
+
 ## 2. Phase 5 scope inventory — partially shipped vs net-new
 
 Phase 5's surface area is broad. To carve it cleanly, distinguish what `main` already carries vs what's net-new vs what's deliberately deferred to a later phase.
@@ -61,7 +63,7 @@ Phase 5's surface area is broad. To carve it cleanly, distinguish what `main` al
 
 **Recommended sequencing position.** Sub-phase 1. Sub-phases 3 (spaced-repetition needs the post-session "got right but slowly" detection path), 4 (full-length needs the review surface for non-strategy-gate part), and 5 (click-to-highlight builds on top) all depend on this surface existing first.
 
-**Cross-cutting concerns.** SPEC §6.5 update (post-session review schema + render). New components under `src/components/post-session/`. No schema migrations expected — all data already in `attempts` + `practice_sessions` + `items`. The surface needs `<WrongItemsBrowser>`, `<AccuracySummary>`, `<LatencySummary>`, `<StrategySurface>` components.
+**Cross-cutting concerns.** SPEC §6.5 update (post-session review schema + render). New components under `src/components/post-session/`. No schema migrations expected — all data already in `attempts` + `practice_sessions` + `items`. The surface needs `<WrongItemsBrowser>`, `<AccuracySummary>`, `<LatencySummary>`, `<StrategySurface>` components. All net-new components are Alpha-Style-styled per §11.5; sub-phase 1's opening commit also runs `teach-alpha-style` as the round's one-time setup so subsequent sub-phases inherit it.
 
 ## 4. Sub-phase 2 — Adaptive difficulty walking
 
@@ -75,7 +77,7 @@ Phase 5's surface area is broad. To carve it cleanly, distinguish what `main` al
 
 **Recommended sequencing position.** Sub-phase 2. Independent of sub-phase 1; runs in parallel if useful, but the carving lists it as 2 because sub-phases 6 and 7 depend on adaptive walking for their respective surfaces (speed-ramp/brutal are adaptive variants; dojo belt-indicator visualizes the adaptive walk).
 
-**Cross-cutting concerns.** SPEC §9.1 + §9.2 reconciliation (the SPEC's `drill → adaptive` table row already matches the implementation that this sub-phase ships; the existing `Phase 5 changes the drill → uniform_band line to drill → adaptive` comment in `selection.ts:101-113` becomes the marker that lifts). No schema changes. Drill-mode smoke (`scripts/_sp3-audit.ts`-equivalent) needs re-run against the walker shape.
+**Cross-cutting concerns.** SPEC §9.1 + §9.2 reconciliation (the SPEC's `drill → adaptive` table row already matches the implementation that this sub-phase ships; the existing `Phase 5 changes the drill → uniform_band line to drill → adaptive` comment in `selection.ts:101-113` becomes the marker that lifts). No schema changes. Drill-mode smoke (`scripts/_sp3-audit.ts`-equivalent) needs re-run against the walker shape. Server-side; no UI surface; Alpha Style not applicable.
 
 ## 5. Sub-phase 3 — Spaced-repetition queue
 
@@ -89,7 +91,7 @@ Phase 5's surface area is broad. To carve it cleanly, distinguish what `main` al
 
 **Recommended sequencing position.** Sub-phase 3. Depends on sub-phase 1; otherwise unblocked. Could run before sub-phase 4 since they're independent.
 
-**Cross-cutting concerns.** Schema migration: `review_queue` table (`(user_id, item_id)` primary key, `due_at_ms`, `last_interval_days`, `last_outcome`). Possibly a new column on `attempts` for "got right but slowly" flag (or compute on the fly from latency + threshold; decision deferred to sub-phase plan). New workflow `reviewQueueRefreshWorkflow` triggered from `endSession` alongside the existing `masteryRecomputeWorkflow`. SPEC §9.5 + §3.5 + §4.3 / PRD §4.3 updates.
+**Cross-cutting concerns.** Schema migration: `review_queue` table (`(user_id, item_id)` primary key, `due_at_ms`, `last_interval_days`, `last_outcome`). Possibly a new column on `attempts` for "got right but slowly" flag (or compute on the fly from latency + threshold; decision deferred to sub-phase plan). New workflow `reviewQueueRefreshWorkflow` triggered from `endSession` alongside the existing `masteryRecomputeWorkflow`. SPEC §9.5 + §3.5 + §4.3 / PRD §4.3 updates. Mastery Map "Review (N due)" button + `/review` session route entry surface are Alpha-Style-styled per §11.5; the in-session focus shell is the standard focus-shell exclusion (no Alpha Style applied mid-session).
 
 ## 6. Sub-phase 4 — Full-length test + strategy-review gate
 
@@ -103,7 +105,7 @@ Phase 5's surface area is broad. To carve it cleanly, distinguish what `main` al
 
 **Recommended sequencing position.** Sub-phase 4. Could swap with sub-phase 3 (spaced-repetition) if dogfood signal favored; the carving lists 3-then-4 because spaced-repetition is the higher-leverage retention mechanic per PRD §1's short-prep-horizon framing.
 
-**Cross-cutting concerns.** Schema migration: `strategy_views` table if not already present (`(user_id, strategy_id, last_viewed_at_ms)` shape per SPEC §3.4 + §10.3). New `dismissPostSession` server action. SPEC §10.3 (full-length walkthrough) + §6.5 (post-session strategy gate) updates.
+**Cross-cutting concerns.** Schema migration: `strategy_views` table if not already present (`(user_id, strategy_id, last_viewed_at_ms)` shape per SPEC §3.4 + §10.3). New `dismissPostSession` server action. SPEC §10.3 (full-length walkthrough) + §6.5 (post-session strategy gate) updates. The full-length configure page + the strategy-review-gate UI rendered on the post-session surface are Alpha-Style-styled per §11.5; the in-session focus shell is the standard focus-shell exclusion.
 
 ## 7. Sub-phase 5 — Click-to-highlight in post-session review
 
@@ -117,7 +119,7 @@ Phase 5's surface area is broad. To carve it cleanly, distinguish what `main` al
 
 **Recommended sequencing position.** Sub-phase 5. Depends on sub-phase 1; fits naturally after sub-phases 3 and 4 because the surfaces those sub-phases extend (review session, full-length post-session) inherit the click-to-highlight behavior automatically.
 
-**Cross-cutting concerns.** New `<StructuredExplanation>` component that consumes the existing `metadata_json.structuredExplanation` shape. SPEC §6.5 + §3.3.3 reference. No schema changes. PRD update flagged in roadmap (§3 click-to-highlight) lands in this sub-phase's opening commit.
+**Cross-cutting concerns.** New `<StructuredExplanation>` component that consumes the existing `metadata_json.structuredExplanation` shape. SPEC §6.5 + §3.3.3 reference. No schema changes. PRD update flagged in roadmap (§3 click-to-highlight) lands in this sub-phase's opening commit. The `<StructuredExplanation>` component renders inside sub-phase 1's wrong-items browser and inherits Alpha Style from that surface per §11.5; no separate Alpha Style work in this sub-phase.
 
 ## 8. Sub-phase 6 — Speed-ramp + brutal drill modes + question-timer toggle
 
@@ -131,7 +133,7 @@ Phase 5's surface area is broad. To carve it cleanly, distinguish what `main` al
 
 **Recommended sequencing position.** Sub-phase 6. Depends on sub-phase 2.
 
-**Cross-cutting concerns.** No schema changes (timer prefs already wired). Focus-shell config additions (per-mode `perQuestionTargetMs`, no internal changes). SPEC §10.2 (drill walkthrough) + §6.7 (question-timer-toggle UX) updates. PRD update flagged in roadmap (§7 dojo mode) is unrelated; this sub-phase doesn't carry that PRD update.
+**Cross-cutting concerns.** No schema changes (timer prefs already wired). Focus-shell config additions (per-mode `perQuestionTargetMs`, no internal changes). SPEC §10.2 (drill walkthrough) + §6.7 (question-timer-toggle UX) updates. PRD update flagged in roadmap (§7 dojo mode) is unrelated; this sub-phase doesn't carry that PRD update. The drill configure page's timer-mode selector is Alpha-Style-styled per §11.5; the in-session focus shell carries no Alpha Style changes (focus-shell exclusion).
 
 ## 9. Sub-phase 7 — NarrowingRamp + Dojo mode UI
 
@@ -145,7 +147,7 @@ Phase 5's surface area is broad. To carve it cleanly, distinguish what `main` al
 
 **Recommended sequencing position.** Sub-phase 7. Could ship earlier (after sub-phase 2) if dogfood signal favored, but the carving lists it last because it's the largest UX shift and benefits from the rest of Phase 5 being stable first.
 
-**Cross-cutting concerns.** Schema: optional column on `practice_sessions` for the if-then plan (or store in `metadata_json` to avoid a migration; decision deferred to sub-phase plan). New `<NarrowingRamp>` route at `/drill/[subTypeId]/ramp` (or wherever pre-session protocol lives) + `<BeltIndicator>` component. SPEC §5.3 + §10.2 updates. PRD update flagged in roadmap (§7 dojo mode rename + belt indicator) lands in this sub-phase's opening commit.
+**Cross-cutting concerns.** Schema: optional column on `practice_sessions` for the if-then plan (or store in `metadata_json` to avoid a migration; decision deferred to sub-phase plan). New `<NarrowingRamp>` route at `/drill/[subTypeId]/ramp` (or wherever pre-session protocol lives) + `<BeltIndicator>` component. SPEC §5.3 + §10.2 updates. PRD update flagged in roadmap (§7 dojo mode rename + belt indicator) lands in this sub-phase's opening commit. NarrowingRamp's first three screens (obstacle scan, visual narrowing, session brief) are Alpha-Style-styled per §11.5; the countdown-launch screen is treated as focus-shell continuity and uses focus-shell visual language (NOT Alpha Style). `<BeltIndicator>` lives on the post-session summary only and inherits the post-session surface's Alpha Style; the mid-session focus shell does NOT carry the belt indicator unless this sub-phase's plan rationales otherwise at plan-time.
 
 ## 10. Sequencing recommendation
 
@@ -179,6 +181,20 @@ Concerns that span multiple sub-phases and benefit from being acknowledged at ma
 
 **Verification protocol carry-forward.** The `playwright-core` discipline + real-DB harness pattern + smoke-script directory pattern + the SPEC §6.14 implementation notes (especially .14 uniform-response-code, .15 hermetic-smoke isolation, .16 auth-shape audit) all carry forward unchanged. Each sub-phase's verification follows the precedent.
 
+**Alpha Style as the design system for non-focus-shell UI.** Phase 5 adopts Alpha Style for every net-new (and several already-shipped) non-focus-shell surfaces. The boundary is load-bearing — the focus shell's visual language is preserved as-is — and the round-opening setup hook lives in sub-phase 1's first commit. See §11.5 for the full boundary, the focus-shell-exclusion rationale, and the per-sub-phase setup posture.
+
+## 11.5. Alpha Style as the design system for non-focus-shell UI
+
+**What Alpha Style is.** Alpha Style is a design system from the Superstarter repo (`PSkinnerTech/alpha-style`), based on `pbakaus/impeccable` and Anthropic's frontend-design skill, tuned to Alpha's brand language: light-first, editorial, polished, confident, premium, trust-first UX, with blue and indigo accents used deliberately rather than everywhere. It installs via `npx skills add PSkinnerTech/alpha-style` or via Claude Code's `/plugin marketplace add PSkinnerTech/alpha-style`. The setup command is `teach-alpha-style`, which gathers Alpha-specific product context and persists it for subsequent passes. Operational commands include `audit`, `critique`, `normalize`, `polish`, `typeset`, `arrange`, `colorize`, `animate`, `overdrive`.
+
+**Boundary — what gets Alpha Style.** Every non-focus-shell UI surface Phase 5 builds or touches: the post-session review surface and all its components from sub-phase 1 (`<WrongItemsBrowser>`, `<AccuracySummary>`, `<LatencySummary>`, `<StrategySurface>`); the Mastery Map's "Review (N due)" button and the `/review` session route entry; the full-length configure page and the strategy-review-gate UI (sub-phase 4); the click-to-highlight `<StructuredExplanation>` rendering on the wrong-items browser (sub-phase 5; inherits from sub-phase 1's surface); the drill configure page's timer-mode selector (sub-phase 6); NarrowingRamp's first three screens — obstacle scan, visual narrowing, session brief (sub-phase 7); the dojo-mode rename + belt indicator on the post-session summary (sub-phase 7); plus the already-shipped Mastery Map, drill configure page, header chrome, sign-out, navigation, auth screens, error screens, and empty states. These surfaces collectively constitute the "outside the active session" UX where editorial polish and trust signals are load-bearing for adoption.
+
+**Boundary — what is excluded.** The `<FocusShell>` and all its children — the chrome row with three bars, `<ItemSlot>`, `<TriagePrompt>`, `<InterQuestionCard>`, audio-tied animations — are explicitly out of Alpha Style's scope. The countdown-launch screen of NarrowingRamp (the final ~15 seconds with periphery dimming and transition into the focus shell) is treated as focus-shell visual continuity and uses focus-shell language rather than Alpha Style. The belt indicator lives only on the post-session summary; the mid-session focus-shell chrome row does NOT carry the belt indicator unless sub-phase 7's plan rationales otherwise at plan-time. Any in-question rendering — item prompts, options, immediate post-submit feedback — is excluded for the same reason as the focus shell. The exclusion is permanent for v1, not a deferred decision.
+
+**Rationale for the focus-shell exclusion.** The focus shell's visual language was tuned through 8+ commits in the post-overhaul-fixes round (see `docs/plans/focus-shell-post-overhaul-fixes.md`). The dual-bar per-question timer, the chrome row layout, the blue-to-red color flip at half-target, the hybrid synth-tick + sampled-loop audio model, and the pace-keyed coloring on the question progression bar are all load-bearing for the 18-second triage discipline that is the product's core differentiation per the BrainLift insight (PRD §1, §6.1). Generic design-system normalization would muddle this — Alpha Style's editorial-polished aesthetic is the right register for "you're choosing what to study" surfaces but the wrong register for "you're under 18-second pressure deciding to triage" surfaces. Two different jobs, two different visual languages, one shared user.
+
+**Setup posture.** `teach-alpha-style` runs as a one-time setup command in sub-phase 1's opening commit. Sub-phase 1 is the first net-new UI surface Phase 5 builds (the post-session review surface), so threading the setup there means subsequent sub-phases inherit the Alpha-style context without per-sub-phase setup work. No standalone sub-phase 0 is needed for this. Each subsequent sub-phase calls Alpha Style's operational commands (`audit` to check existing surfaces, `normalize` to align new surfaces, `polish` to finish before commit) at the appropriate point inside its own implementation, per the per-sub-phase plan that sub-phase opens with.
+
 ## 12. Out of scope
 
 Explicit list — items deliberately NOT addressed in Phase 5:
@@ -193,7 +209,7 @@ Explicit list — items deliberately NOT addressed in Phase 5:
 
 ## 13. Open questions / resolutions
 
-Two open questions surfaced during master-plan drafting; both need Leo's input before sub-phase 1 can start.
+Open questions / resolutions captured during master-plan drafting. As of 2026-05-04, all three open questions (§13.1 / §13.2 / §13.3) are resolved and §13.4 is resolved-but-flagged. Sub-phase 1 can start.
 
 ### 13.1 A4 (pre-session readiness check) status
 
@@ -204,7 +220,7 @@ Two open questions surfaced during master-plan drafting; both need Leo's input b
 
 **Resolution: paste-residue read carried forward in the absence of explicit re-elevation. A4 stays cut.** This is the conservative read against the most recent explicit decision. If Leo confirms re-elevation, A4 lives OUTSIDE Phase 5 — it's a NarrowingRamp extension (PRD §5.3 territory, sub-phase 7-adjacent) plus a metacognitive feature (closer to roadmap Round G's framing), not engine-completeness. Re-elevating it would land as a small follow-up round, not a sub-phase amendment to Phase 5.
 
-**Action required from Leo.** Confirm cut stands, OR re-elevate with a stated home (most-likely sub-phase 7 of Phase 5 or its own post-Phase-5 round). Until confirmed, sub-phase plans for Phase 5 proceed without A4 in scope.
+**Resolution.** A4 stays cut per Leo's 2026-05-04 instruction. The cut from commit `064a386` stands as durable. No action required; sub-phase plans for Phase 5 proceed without A4 in scope.
 
 ### 13.2 Sub-phase 1 entry point
 
@@ -212,7 +228,7 @@ Two open questions surfaced during master-plan drafting; both need Leo's input b
 
 **Resolution: sub-phase 1 (post-session review surface).** Rationale per §10: full-length depends on the review surface; post-session unblocks three downstream sub-phases; the review surface has no Phase 5 dependencies; full-length-first would build a partial post-session surface inside sub-phase 4 that sub-phase 1 then reworks. Confirming this picks the same answer the master plan's carving assumes; flagging as an open question because reasonable people could prefer "ship the highest-user-value feature first" over "ship the foundation first."
 
-**Action required from Leo.** Confirm sub-phase 1 = post-session review surface, OR redirect to full-length tests.
+**Resolution.** Sub-phase 1 = post-session review surface confirmed 2026-05-04. Rationale per §10 carries forward; reasonable people could prefer "ship the highest-user-value feature first" but the duplication cost makes the foundation-first call right.
 
 ### 13.3 Round Bx amendment (informational, not blocking)
 
@@ -220,4 +236,14 @@ Two open questions surfaced during master-plan drafting; both need Leo's input b
 
 **Resolution.** Deferred — separate follow-up commit, not part of this master plan. Surfaced here so the amendment doesn't get lost.
 
-**Action required from Leo.** Confirm the deferral language is acceptable, or redirect (e.g., remove Round Bx entirely vs. mark as deferred).
+**Resolution.** Deferral language confirmed 2026-05-04 per Leo's instruction. Round Bx flips to "deferred until Phase 5 + post-Phase-5 rounds complete" as a separate follow-up commit (not folded into this master plan commit; one-line roadmap edit).
+
+### 13.4 Alpha Style boundary edge cases — resolved, flagged for sub-phase override
+
+**Status: resolved-but-flagged, NOT open.** The two edge cases that could plausibly be re-litigated at sub-phase plan time are pinned in §11.5; capturing them here so a sub-phase plan that wants to deviate has to argue against the pin rather than picking up an undefined boundary.
+
+**Edge case 1: belt-indicator placement.** §11.5 pins the belt indicator to the post-session summary only; the mid-session focus-shell chrome row does NOT carry the belt indicator. Rationale: the focus-shell exclusion treats the chrome row as load-bearing for triage discipline and excludes generic-design-system additions. A belt indicator mid-session would (a) introduce a non-pace visual element into a chrome row whose every element is already pace-keyed, and (b) potentially distract from the 18-second triage prompt the chrome row is built around. Sub-phase 7's plan can override this pin if it has a rationale that addresses both concerns.
+
+**Edge case 2: NarrowingRamp countdown-launch screen.** §11.5 pins the countdown-launch screen (the final ~15 seconds with periphery dimming) as focus-shell continuity, NOT Alpha Style. Rationale: the periphery-dimming + 5-second countdown IS the visual transition into the focus shell; styling it as Alpha Style and then jump-cutting to the focus shell's own visual language at t=0 would be jarring. The countdown-launch screen IS already part of the focus-shell visual language, just rendered before the first item. Sub-phase 7's plan can override this pin if it has a rationale for why the transition is better served by a stylistic break than by continuity.
+
+**No action required from Leo.** Both edge cases are resolved by the §11.5 pins; they are not open questions. They are flagged here so that sub-phase 7's plan starts from the pinned position rather than from "what should we do here?"
