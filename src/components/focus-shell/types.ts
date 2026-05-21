@@ -9,7 +9,7 @@
 
 import type { ItemBody } from "@/server/items/body-schema"
 
-type SessionType = "diagnostic" | "drill" | "full_length" | "simulation"
+type SessionType = "diagnostic" | "drill" | "full_length" | "practice_test" | "simulation"
 
 type Difficulty = "easy" | "medium" | "hard" | "brutal"
 type FallbackLevel = "fresh" | "session-soft" | "recency-soft" | "tier-degraded"
@@ -60,6 +60,8 @@ interface FocusShellProps {
 	targetQuestionCount: number
 	paceTrackVisible: boolean
 	initialItem: ItemForRender
+	heartbeatHref?: string
+	afterEndSessionNavigate?: () => void
 	// `true` for simulation only (Phase 5). Disables any pause UI etc.
 	// Phase 3 callers pass `false`.
 	strictMode: boolean

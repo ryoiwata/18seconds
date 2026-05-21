@@ -105,6 +105,7 @@ interface FocusShellRuntimeEffectsArgs {
 	warningSoundEnabled: boolean
 	perQuestionTargetMs: number
 	onEndSession: () => Promise<void>
+	afterEndSessionNavigate?: () => void
 }
 
 interface FocusShellChromeState {
@@ -739,11 +740,16 @@ function useFocusShellRuntimeEffects(args: FocusShellRuntimeEffectsArgs): void {
 						"focus-shell: auto-end onEndSession threw — proceeding to navigation anyway"
 					)
 				}
+				if (args.afterEndSessionNavigate !== undefined) {
+					args.afterEndSessionNavigate()
+					return
+				}
 				args.router.push(`/post-session/${args.sessionId}`)
 			}
 			void runAutoEnd()
 		},
 		[
+			args.afterEndSessionNavigate,
 			args.dispatch,
 			args.onEndSession,
 			args.previewMode,
@@ -920,6 +926,8 @@ function FocusShellRunning(props: FocusShellRunningProps) {
 		props.warningSoundEnabled
 	)
 
+	const router = useRouter()
+
 	const performSubmit = React.useCallback(
 		async function performSubmit(): Promise<void> {
 			const snapshot = stateRef.current
@@ -951,15 +959,18 @@ function FocusShellRunning(props: FocusShellRunningProps) {
 						"focus-shell: onEndSession threw"
 					)
 					dispatch({ kind: "submit_failed" })
+					return
+				}
+				if (props.afterEndSessionNavigate !== undefined) {
+					props.afterEndSessionNavigate()
 				}
 				return
 			}
 			dispatch({ kind: "advance", next: result.nextItem, nowMs: performance.now() })
 		},
-		[props.onEndSession, props.onSubmitAttempt, props.sessionId, stateRef]
+		[props.afterEndSessionNavigate, props.onEndSession, props.onSubmitAttempt, props.sessionId, stateRef]
 	)
 
-	const router = useRouter()
 	useFocusShellRuntimeEffects({
 		dispatch,
 		performSubmit,
@@ -973,7 +984,8 @@ function FocusShellRunning(props: FocusShellRunningProps) {
 		tickingSoundEnabled: props.tickingSoundEnabled,
 		warningSoundEnabled: props.warningSoundEnabled,
 		perQuestionTargetMs: props.perQuestionTargetMs,
-		onEndSession: props.onEndSession
+		onEndSession: props.onEndSession,
+		afterEndSessionNavigate: props.afterEndSessionNavigate
 	})
 
 	const { sessionBarDemoBehindPace, sessionBarDemoCycle } = useTutorialSessionBarDemo(
@@ -1099,7 +1111,7 @@ function FocusShellRunning(props: FocusShellRunningProps) {
 				</div>
 			</main>
 			<InterQuestionCard visible={state.interQuestionVisible} />
-			<Heartbeat sessionId={props.sessionId} />
+			<Heartbeat sessionId={props.sessionId} href={props.heartbeatHref} />
 			{tutorialOverlayOpen && overlayControls ? (
 				<FocusTutorialOverlay
 					stepIndex={activeTutorialStepIndex}
